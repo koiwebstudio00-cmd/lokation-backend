@@ -1,0 +1,775 @@
+// Modelo de datos — ver docs: diagrama-er.md, permisos-rls.md
+// RLS, enums, helpers ctx_*() y roles de BD viven en SQL dentro de migrations/.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantEstado {
+  activo
+  suspendido
+
+  @@map("tenant_estado")
+}
+
+enum UserRol {
+  super_admin
+  admin
+  agente
+
+  @@map("user_rol")
+}
+
+enum UserEstado {
+  activo
+  inactivo
+
+  @@map("user_estado")
+}
+
+enum Operacion {
+  venta
+  alquiler
+  ambos
+
+  @@map("operacion_enum")
+}
+
+enum TipoPropiedad {
+  monoambiente
+  departamento
+  casa
+  duplex
+  local_comercial
+  oficina
+  galpon
+  estacionamiento
+  terreno
+  otro
+
+  @@map("tipo_enum")
+}
+
+enum Moneda {
+  ARS
+  USD
+
+  @@map("moneda_enum")
+}
+
+enum EstadoComercial {
+  disponible
+  reservado
+  proximamente
+  pausado
+  vendida
+  alquilada
+  privado
+
+  @@map("estado_enum")
+}
+
+// ── Enums de alquiler ────────────────────────────────────────────────────────
+enum DestinoAlquiler {
+  vivienda
+  comercial
+  profesional
+  otro
+
+  @@map("destino_enum")
+}
+
+enum PlazoContrato {
+  // La UI muestra "12 meses"…; el valor sin dígito inicial es requisito de
+  // Prisma (los miembros de enum no pueden empezar con número).
+  meses_12
+  meses_18
+  meses_24
+  meses_36
+  otro
+
+  @@map("plazo_contrato_enum")
+}
+
+enum AjusteAlquiler {
+  trimestral
+  cuatrimestral
+  otro
+
+  @@map("ajuste_enum")
+}
+
+enum IndiceAjuste {
+  icl
+  ipc
+  fijo
+
+  @@map("indice_ajuste_enum")
+}
+
+enum MascotasAlquiler {
+  se_permiten
+  no_se_permiten
+  sin_especificar
+
+  @@map("mascotas_enum")
+}
+
+enum AmobladoAlquiler {
+  amoblado
+  sin_amoblar
+  sin_especificar
+
+  @@map("amoblado_enum")
+}
+
+enum LeadCanal {
+  web
+  whatsapp
+  instagram
+  messenger
+  manual
+
+  @@map("lead_canal")
+}
+
+enum LeadEstado {
+  nueva
+  en_contacto
+  ganada
+  perdida
+
+  @@map("lead_estado")
+}
+
+enum LeadClasificacion {
+  potencial
+  fantasma
+
+  @@map("lead_clasificacion")
+}
+
+enum LeadTomadoOrigen {
+  panel
+  whatsapp_business_app
+  sistema
+
+  @@map("lead_tomado_origen")
+}
+
+enum ConversacionCanal {
+  whatsapp
+  web
+
+  @@map("conversacion_canal")
+}
+
+enum ConversacionEstado {
+  bot
+  esperando_humano
+  humano
+  cerrada
+
+  @@map("conversacion_estado")
+}
+
+enum MensajeRol {
+  lead
+  agente_ia
+  vendedor
+  sistema
+
+  @@map("mensaje_rol")
+}
+
+enum MensajeTipo {
+  texto
+  audio
+  imagen
+  documento
+  plantilla
+
+  @@map("mensaje_tipo")
+}
+
+enum HandoffResultado {
+  pendiente
+  tomado
+  timeout_reasignado
+  rechazado
+
+  @@map("handoff_resultado")
+}
+
+enum NotaOrigen {
+  humano
+  agente
+
+  @@map("nota_origen")
+}
+
+/// Lo que quiere el LEAD. No confundir con Operacion, que es lo que ofrece la
+/// propiedad: un lead que quiere *vender* no matchea nada del inventario.
+enum LeadIntencion {
+  comprar
+  alquilar
+  vender
+  tasar
+  consulta
+
+  @@map("lead_intencion")
+}
+
+enum LeadTemperatura {
+  fria
+  tibia
+  caliente
+
+  @@map("lead_temperatura")
+}
+
+enum DeliveryEstado {
+  pendiente
+  entregada
+  fallida
+
+  @@map("delivery_estado")
+}
+
+enum FeedbackTipo {
+  sugerencia
+  error
+
+  @@map("feedback_tipo")
+}
+
+enum FeedbackEstado {
+  nuevo
+  en_revision
+  planificada
+  resuelta
+  descartada
+
+  @@map("feedback_estado")
+}
+
+model Tenant {
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre                String
+  slug                  String       @unique
+  logoUrl               String?      @map("logo_url")
+  configSitio           Json?        @map("config_sitio")
+  estado                TenantEstado @default(activo)
+  agentEnabled          Boolean      @default(true) @map("agente_activo")
+  followupEnabled       Boolean      @default(true) @map("seguimiento_activo")
+  followupFirstMessage  String       @default("Hola, ¿seguís interesado/a en la propiedad? Si querés te ayudo con cualquier duda.") @map("seguimiento_mensaje_1")
+  followupSecondMessage String       @default("Te escribo por última vez por tu consulta. Si todavía te interesa, respondeme por acá y seguimos.") @map("seguimiento_mensaje_2")
+  /// Profile de Zernio (1:1 con el tenant), creado lazy al conectar el primer
+  /// canal. Ver plan-implementacion-zernio.md §4.3.
+  zernioProfileId       String?      @map("zernio_profile_id")
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  users               User[]
+  invitations         Invitation[]
+  properties          Property[]
+  images              PropertyImage[]
+  leads               Lead[]
+  leadNotes           LeadNote[]
+  webhookEndpoints    WebhookEndpoint[]
+  apiKeys             ApiKey[]
+  conversations       Conversation[]
+  conversationMsgs    ConversationMessage[]
+  vendedoresAgente    VendedorAgente[]
+  handoffs            Handoff[]
+  channelAccounts     ChannelAccount[]
+  feedbackItems       FeedbackItem[]
+  feedbackAdjuntos    FeedbackAdjunto[]
+  feedbackComentarios FeedbackComentario[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String?    @map("tenant_id") @db.Uuid // null solo para super_admin
+  nombre       String
+  email        String     @unique @db.Citext
+  passwordHash String     @map("password_hash")
+  rol          UserRol
+  estado       UserEstado @default(activo)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant                    Tenant?              @relation(fields: [tenantId], references: [id])
+  invitationsSent           Invitation[]         @relation("inviter")
+  refreshTokens             RefreshToken[]
+  passwordResets            PasswordReset[]
+  properties                Property[]
+  leadsAssigned             Lead[]               @relation("leadAssignee")
+  leadsTaken                Lead[]               @relation("leadTakenBy")
+  leadNotes                 LeadNote[]
+  apiKeysCreated            ApiKey[]             @relation("apiKeyCreator")
+  conversations             Conversation[]       @relation("conversationVendedor")
+  handoffs                  Handoff[]
+  vendedorAgente            VendedorAgente?
+  channelAccountsConectadas ChannelAccount[]     @relation("channelAccountConector")
+  feedbackItems             FeedbackItem[]       @relation("feedbackAutor")
+  feedbackComentarios       FeedbackComentario[] @relation("feedbackComentarioAutor")
+
+  @@index([tenantId, email])
+  @@map("users")
+}
+
+model Property {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  userId         String            @map("user_id") @db.Uuid
+  titulo         String
+  operacion      Operacion
+  tipo           TipoPropiedad
+  precio         Decimal           @db.Decimal(14, 2)
+  moneda         Moneda            @default(ARS)
+  // operacion=ambos: `precio`/`moneda` = venta; estos dos = alquiler.
+  precioAlquiler Decimal?          @map("precio_alquiler") @db.Decimal(14, 2)
+  monedaAlquiler Moneda?           @map("moneda_alquiler")
+  descripcion    String?
+  direccion      String?
+  zona           String?
+  ciudad         String?
+  ambientes      Int?              @db.SmallInt
+  dormitorios    Int?              @db.SmallInt
+  banios         Int?              @db.SmallInt
+  supCubierta    Decimal?          @map("sup_cubierta") @db.Decimal(10, 2)
+  supTotal       Decimal?          @map("sup_total") @db.Decimal(10, 2)
+  estado         EstadoComercial   @default(disponible)
+  // Destacada: la sube al tope del listado web y del agente. Tope por vendedor.
+  destacada      Boolean           @default(false)
+  notas          String?
+  requisitos     String?
+  linkMaps       String?           @map("link_maps")
+  // Campos de alquiler (nullable): no aplican a venta y se cargan opcionalmente.
+  destino        DestinoAlquiler?
+  plazoContrato  PlazoContrato?    @map("plazo_contrato")
+  plazoOtro      String?           @map("plazo_otro")
+  ajuste         AjusteAlquiler?
+  ajusteOtro     String?           @map("ajuste_otro")
+  indiceAjuste   IndiceAjuste?     @map("indice_ajuste")
+  indiceFijoPct  Decimal?          @map("indice_fijo_pct") @db.Decimal(5, 2)
+  expensas       String?
+  mascotas       MascotasAlquiler?
+  amoblado       AmobladoAlquiler?
+  // Ubicación en el mapa (pin de Leaflet).
+  lat            Decimal?          @db.Decimal(9, 6)
+  lng            Decimal?          @db.Decimal(9, 6)
+  slug           String            @unique @default("")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  user          User            @relation(fields: [userId], references: [id])
+  images        PropertyImage[]
+  leads         Lead[]
+  conversations Conversation[]
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, userId])
+  @@index([tenantId, estado])
+  @@map("properties")
+}
+
+model Lead {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String             @map("tenant_id") @db.Uuid
+  propertyId    String?            @map("property_id") @db.Uuid
+  assignedTo    String?            @map("assigned_to") @db.Uuid
+  canal         LeadCanal          @default(web)
+  canalRef      String?            @map("canal_ref")
+  nombre        String
+  email         String?
+  telefono      String?
+  mensaje       String
+  estado        LeadEstado         @default(nueva)
+  // Potencial (cliente real) vs fantasma (curioso). La pone el agente y el
+  // vendedor la puede corregir. Nullable = todavía sin clasificar.
+  clasificacion LeadClasificacion? @map("clasificacion")
+  tomadoAt      DateTime?          @map("tomado_at") @db.Timestamptz(6)
+  tomadoPor     String?            @map("tomado_por") @db.Uuid
+  tomadoOrigen  LeadTomadoOrigen?  @map("tomado_origen")
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  property      Property?      @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  assignee      User?          @relation("leadAssignee", fields: [assignedTo], references: [id])
+  takenBy       User?          @relation("leadTakenBy", fields: [tomadoPor], references: [id], onDelete: SetNull)
+  notes         LeadNote[]
+  conversations Conversation[]
+
+  @@index([tenantId, estado])
+  @@index([tenantId, canal])
+  @@index([assignedTo])
+  @@map("leads")
+}
+
+model LeadNote {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String     @map("tenant_id") @db.Uuid
+  leadId    String     @map("lead_id") @db.Uuid
+  // Null cuando la nota la escribió el agente de IA: no es un usuario del
+  // panel. El check de coherencia con `origen` vive en la BD (migración 0012).
+  userId    String?    @map("user_id") @db.Uuid
+  origen    NotaOrigen @default(humano)
+  nota      String
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([leadId])
+  @@map("lead_notes")
+}
+
+model WebhookEndpoint {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid // null = global
+  url       String
+  eventos   String[]
+  secret    String
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant?           @relation(fields: [tenantId], references: [id])
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  endpointId  String         @map("endpoint_id") @db.Uuid
+  evento      String
+  payload     Json
+  intentos    Int            @default(0)
+  httpStatus  Int?           @map("http_status")
+  estado      DeliveryEstado @default(pendiente)
+  nextRetryAt DateTime?      @map("next_retry_at") @db.Timestamptz(6)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([estado, nextRetryAt])
+  @@map("webhook_deliveries")
+}
+
+model PropertyImage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  r2Key      String   @unique @map("r2_key")
+  url        String
+  esPortada  Boolean  @default(false) @map("es_portada")
+  orden      Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, orden])
+  @@map("property_images")
+}
+
+model Invitation {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  invitedBy  String    @map("invited_by") @db.Uuid
+  email      String    @db.Citext
+  rol        UserRol
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inviter User   @relation("inviter", fields: [invitedBy], references: [id])
+
+  @@index([tenantId])
+  @@map("invitations")
+}
+
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model ApiKey {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  createdBy  String    @map("created_by") @db.Uuid
+  nombre     String
+  keyHash    String    @unique @map("key_hash")
+  prefix     String
+  // Permisos de la integración — ver src/lib/scopes.ts. El check de valores
+  // válidos vive en la BD (migración 0011).
+  scopes     String[]  @default(["export:read"])
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator User   @relation("apiKeyCreator", fields: [createdBy], references: [id])
+
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+// ── Agente de IA ─────────────────────────────────────────────────────────────
+// Ver lamelas-agent/docs/contrato-agente-api.md. Estas tablas las escribe el
+// contexto interno 'agent' (API key con scope agent:write) y las lee el panel
+// con la sesión del vendedor. RLS en la migración 0012.
+
+model Conversation {
+  id                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String             @map("tenant_id") @db.Uuid
+  leadId                 String             @map("lead_id") @db.Uuid
+  canal                  ConversacionCanal
+  /// Teléfono/BSUID en WhatsApp, id de sesión en el probador web del panel.
+  canalRef               String             @map("canal_ref")
+  channelAccountId       String?            @map("channel_account_id") @db.Uuid
+  providerConversationId String?            @map("provider_conversation_id")
+  estado                 ConversacionEstado @default(bot)
+  vendedorId             String?            @map("vendedor_id") @db.Uuid
+  /// 0 = sin seguimiento; 1/2 = mensaje pendiente; 3 = cierre fantasma.
+  followupStep           Int                @default(0) @map("seguimiento_paso") @db.SmallInt
+  followupDueAt          DateTime?          @map("seguimiento_vencimiento") @db.Timestamptz(6)
+  followupClaimedAt      DateTime?          @map("seguimiento_reclamado_at") @db.Timestamptz(6)
+  lastLeadMessageAt      DateTime?          @map("ultimo_mensaje_lead_at") @db.Timestamptz(6)
+
+  // Perfil de búsqueda del lead — lo que el panel muestra de un vistazo.
+  // Se extrae del structured output junto con `resumen`; va en columnas para
+  // poder filtrar y agrupar sin escanear el jsonb.
+  intencion      LeadIntencion?
+  tipoPropiedad  String[]         @map("tipo_propiedad")
+  ciudad         String?
+  zonas          String[]
+  presupuestoMin Decimal?         @map("presupuesto_min") @db.Decimal(14, 2)
+  presupuestoMax Decimal?         @map("presupuesto_max") @db.Decimal(14, 2)
+  moneda         String?
+  dormitoriosMin Int?             @map("dormitorios_min")
+  propertyId     String?          @map("property_id") @db.Uuid
+  temperatura    LeadTemperatura?
+
+  /// Brief completo para el vendedor — schema en prompt-y-calificacion.md §6.
+  resumen   Json?
+  resumenAt DateTime? @map("resumen_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant         Tenant                @relation(fields: [tenantId], references: [id])
+  lead           Lead                  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  vendedor       User?                 @relation("conversationVendedor", fields: [vendedorId], references: [id])
+  property       Property?             @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  channelAccount ChannelAccount?       @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+  messages       ConversationMessage[]
+  handoffs       Handoff[]
+
+  @@index([leadId])
+  @@index([tenantId, estado])
+  @@index([vendedorId])
+  @@index([channelAccountId])
+  @@index([followupDueAt])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id                BigInt      @id @default(autoincrement())
+  tenantId          String      @map("tenant_id") @db.Uuid
+  conversationId    String      @map("conversation_id") @db.Uuid
+  rol               MensajeRol
+  tipo              MensajeTipo @default(texto)
+  /// Texto del mensaje, o transcripción cuando llegó como audio.
+  contenido         String
+  mediaUrl          String?     @map("media_url")
+  providerMessageId String?     @map("provider_message_id")
+  /// Ids de Meta, tokens consumidos, tool calls.
+  meta              Json?
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+/// Quiénes entran en el reparto. Existe para poder sacar a alguien (vacaciones)
+/// sin desactivarle el usuario del panel.
+model VendedorAgente {
+  userId              String    @id @map("user_id") @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  activo              Boolean   @default(true)
+  ultimoAsignadoAt    DateTime? @map("ultimo_asignado_at") @db.Timestamptz(6)
+  leadsAsignadosCount Int       @default(0) @map("leads_asignados_count")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("vendedores_agente")
+}
+
+model Handoff {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  conversationId String           @map("conversation_id") @db.Uuid
+  vendedorId     String           @map("vendedor_id") @db.Uuid
+  motivo         String
+  resultado      HandoffResultado @default(pendiente)
+  asignadoAt     DateTime         @default(now()) @map("asignado_at") @db.Timestamptz(6)
+  tomadoAt       DateTime?        @map("tomado_at") @db.Timestamptz(6)
+  reassignable   Boolean          @default(true) @map("reasignable")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  vendedor     User         @relation(fields: [vendedorId], references: [id])
+
+  @@index([conversationId, asignadoAt(sort: Desc)])
+  @@map("handoffs")
+}
+
+// ── Canales de mensajería (Zernio) ────────────────────────────────────────────
+// Ver lamelas-agent/docs/plan-implementacion-zernio.md. Mapeo tenant ↔ cuenta
+// conectada en Zernio (hoy solo WhatsApp; el `check` de `canal` se amplía
+// cuando se retome Instagram — regla 10 del CLAUDE.md). `zernioAccountId` es
+// la clave del join que hace el worker al resolver a qué tenant pertenece un
+// evento entrante.
+
+model ChannelAccount {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  canal           String
+  zernioProfileId String    @map("zernio_profile_id")
+  zernioAccountId String    @unique @map("zernio_account_id")
+  /// Snapshot liviano para el panel (verifiedName / display_phone_number de Meta).
+  displayName     String?   @map("display_name")
+  displayPhone    String?   @map("display_phone")
+  estado          String    @default("activa")
+  connectionMode  String    @default("unknown") @map("connection_mode")
+  disconnectedAt  DateTime? @map("disconnected_at") @db.Timestamptz(6)
+  conectadaPor    String?   @map("conectada_por") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conector      User?          @relation("channelAccountConector", fields: [conectadaPor], references: [id])
+  conversations Conversation[]
+
+  @@index([tenantId])
+  @@map("channel_accounts")
+}
+
+/// Cola de eventos entrantes de Zernio (mensajes, estado de conversación). Sin
+/// tenant_id: todavía no se resolvió cuando el webhook los inserta — lo hace
+/// el worker leyendo channel_accounts. Ver plan §3.3 y §5.
+model ChannelWebhookEvent {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  zernioEventId String    @unique @map("zernio_event_id")
+  evento        String
+  payload       Json
+  estado        String    @default("pendiente")
+  intentos      Int       @default(0)
+  errorDetalle  String?   @map("error_detalle")
+  recibidoAt    DateTime  @default(now()) @map("recibido_at") @db.Timestamptz(6)
+  procesadoAt   DateTime? @map("procesado_at") @db.Timestamptz(6)
+
+  @@index([estado, recibidoAt])
+  @@map("channel_webhook_events")
+}
+
+// ── Feedback (sugerencias y reportes de error del panel) ─────────────────────
+// Ver migración 0014. RLS: super_admin ve todo, admin su tenant, el autor lo
+// propio. Solo los reportes ('error') tienen adjuntos.
+
+model FeedbackItem {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  autorId     String         @map("autor_id") @db.Uuid
+  tipo        FeedbackTipo
+  titulo      String
+  descripcion String
+  estado      FeedbackEstado @default(nuevo)
+  urlContexto String?        @map("url_contexto")
+  userAgent   String?        @map("user_agent")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id])
+  autor       User                 @relation("feedbackAutor", fields: [autorId], references: [id])
+  adjuntos    FeedbackAdjunto[]
+  comentarios FeedbackComentario[]
+
+  @@index([tenantId, tipo, estado])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([autorId])
+  @@map("feedback_items")
+}
+
+model FeedbackAdjunto {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  feedbackId String   @map("feedback_id") @db.Uuid
+  r2Key      String   @unique @map("r2_key")
+  url        String
+  orden      Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id])
+  feedback FeedbackItem @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@index([feedbackId, orden])
+  @@map("feedback_adjuntos")
+}
+
+model FeedbackComentario {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  feedbackId String   @map("feedback_id") @db.Uuid
+  autorId    String   @map("autor_id") @db.Uuid
+  cuerpo     String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id])
+  feedback FeedbackItem @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  autor    User         @relation("feedbackComentarioAutor", fields: [autorId], references: [id])
+
+  @@index([feedbackId, createdAt])
+  @@map("feedback_comentarios")
+}

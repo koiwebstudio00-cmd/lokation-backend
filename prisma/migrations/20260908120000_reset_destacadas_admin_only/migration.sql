@@ -1,0 +1,11 @@
+-- Reset de "destacada": con el flag abierto a cualquier vendedor (tope de 6
+-- c/u, sin control de rol), se llegó a 48 propiedades destacadas en simultáneo
+-- (8 vendedores x 6) — inservible como vitrina. A partir de esta migración
+-- destacar es solo admin (ver properties/service.ts, assertPuedeDestacar) y
+-- el tope pasa a ser único por tenant (MAX_DESTACADAS_POR_TENANT = 12).
+--
+-- Se apagan TODAS las destacadas existentes para que el admin arranque la
+-- curaduría desde cero, a criterio propio (o según qué propiedades reciben
+-- consultas, ver el módulo de analíticas). No se toca ninguna otra columna:
+-- no hay pérdida de datos, solo se resetea este booleano.
+UPDATE "properties" SET "destacada" = false WHERE "destacada" = true;
