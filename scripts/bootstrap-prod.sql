@@ -1,7 +1,8 @@
 -- Bootstrap de producción — correr UNA sola vez, ANTES del primer deploy.
 --
--- Dónde: Dokploy → proyecto lamelas → base de datos `inmo` → terminal del
--- contenedor → `psql -U <usuario_owner> -d inmo`, y pegar esto.
+-- Ejecutar solo en una instancia PostgreSQL exclusiva de Ubikka, con el nombre
+-- de BD y el usuario owner definidos para ese entorno. No compartir el cluster
+-- con el prototipo: `app_rt` es un rol global de PostgreSQL.
 --
 -- Por qué existe: la migración 0001 crea el rol `app_rt` con una password de
 -- desarrollo ('app_rt_dev'), pero solo si el rol NO existe todavía. Creándolo

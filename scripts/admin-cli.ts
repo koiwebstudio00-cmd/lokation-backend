@@ -194,7 +194,7 @@ async function setPassword(flags: Record<string, string>): Promise<void> {
   printPassword(email, password, generated);
 }
 
-const USAGE = `CLI de administración — back-lamelas
+const USAGE = `CLI de administración — Ubikka
 
   npm run admin -- list [--tenant <slug>]
   npm run admin -- create-superadmin --email <email> [--nombre "..."] [--password <pass>]

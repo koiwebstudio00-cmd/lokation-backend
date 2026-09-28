@@ -40,7 +40,7 @@ RUN npm run build
 # ── Runtime ──────────────────────────────────────────────────────────────────
 FROM base AS runner
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3001
 
 # Se copia node_modules entero del builder en vez de reinstalar con
 # --omit=dev. Es una imagen más grande, pero garantiza que el binario nativo de
@@ -56,10 +56,10 @@ RUN chmod +x docker-entrypoint.sh && chown -R node:node /app
 # La imagen de node ya trae el usuario `node` sin privilegios.
 USER node
 
-EXPOSE 3000
+EXPOSE 3001
 
 # Node 22 trae fetch global: no hace falta meter curl en la imagen.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["./docker-entrypoint.sh"]

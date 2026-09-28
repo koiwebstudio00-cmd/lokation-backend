@@ -8,13 +8,13 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: inmo
+      POSTGRES_DB: ubikka_dev
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - dbdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d inmo"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ubikka_dev"]
       interval: 5s
       timeout: 3s
       retries: 10
