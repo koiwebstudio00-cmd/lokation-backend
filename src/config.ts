@@ -18,8 +18,8 @@ const envSchema = z.object({
   // directamente no manda la cookie de sesión y el login no funciona.
   // 'none' exige COOKIE_SECURE=true, si no el navegador la descarta.
   COOKIE_SAMESITE: z.enum(["lax", "none", "strict"]).default("lax"),
-  // Para compartir la cookie entre subdominios del mismo dominio
-  // (.inmobiliarialyc.com.ar). Vacío = solo el host que la emitió.
+  // Para compartir la cookie entre subdominios del dominio de Ubikka.
+  // Vacío = solo el host que la emitió.
   COOKIE_DOMAIN: z.string().optional(),
   // URL del panel: los links de los emails (invitación/reset) apuntan ahí.
   // El panel corre en 3000 y la API en 3001, así que el default NO es PORT.
@@ -56,8 +56,7 @@ const envSchema = z.object({
   // no tiene `config_sitio.url_publica` cargado.
   SITIO_PUBLICO_URL: z.string().default(""),
   // ── Zernio (canales de mensajería) ──────────────────────────────────────────
-  // Ver lamelas-agent/docs/plan-implementacion-zernio.md. Una sola key para
-  // todo el team de Zernio (Koi Studio) — nunca se expone al panel.
+  // Una sola key para el team de Zernio de Ubikka; nunca se expone al panel.
   ZERNIO_API_KEY: z.string().optional(),
   // Verifica X-Zernio-Signature en /webhooks/zernio. Sin ella, el endpoint
   // rechaza todo (falla cerrado: mejor no recibir mensajes que aceptarlos sin
@@ -97,6 +96,15 @@ if (config.NODE_ENV === "production") {
   }
   if (!config.COOKIE_SECURE) {
     throw new Error("COOKIE_SECURE debe ser 'true' en producción (las cookies viajan por HTTPS).");
+  }
+  if (!config.SMTP_HOST || config.EMAIL_FROM.includes("@localhost")) {
+    throw new Error("SMTP_HOST y EMAIL_FROM propio son obligatorios en producción.");
+  }
+  if (!config.FRONT_URL.startsWith("https://")) {
+    throw new Error("FRONT_URL debe usar HTTPS en producción para los enlaces de acceso.");
+  }
+  if (config.N8N_WHATSAPP_WEBHOOK_URL) {
+    throw new Error("El workflow n8n heredado no puede usarse en producción de Ubikka.");
   }
 }
 

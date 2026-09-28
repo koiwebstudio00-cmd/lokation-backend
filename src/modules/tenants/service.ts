@@ -1,4 +1,5 @@
 import { ApiError } from "../../lib/errors.js";
+import { config } from "../../config.js";
 import { runWithContext } from "../../lib/prisma.js";
 import type { AccessClaims } from "../../lib/tokens.js";
 import { createInvitation } from "../auth/service.js";
@@ -57,6 +58,9 @@ export async function updateCurrentTenant(
     followupSecondMessage?: string;
   }
 ) {
+  if (config.NODE_ENV === "production" && data.agentEnabled === true) {
+    throw new ApiError("CONFLICT", "El agente estará disponible cuando finalice su migración a código.");
+  }
   return runWithContext(ctxOf(auth), async (tx) => {
     const tenant = await tx.tenant.update({
       where: { id: auth.tenantId! },

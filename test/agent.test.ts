@@ -28,6 +28,11 @@ describe.runIf(DB_AVAILABLE)("Agente de IA", () => {
     await truncateAll();
     A = await seedTenantWithUsers("agnt");
     B = await seedTenantWithUsers("agnu");
+    expect(A.tenant.agentEnabled).toBe(false);
+    await adminDb().tenant.updateMany({
+      where: { id: { in: [A.tenant.id, B.tenant.id] } },
+      data: { agentEnabled: true }
+    });
     adminA = await loginAgent(app, A.admin.email);
 
     // Propiedad con notas internas: el test anti-fuga se apoya en esto.

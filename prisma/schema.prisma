@@ -265,7 +265,7 @@ model Tenant {
   logoUrl               String?      @map("logo_url")
   configSitio           Json?        @map("config_sitio")
   estado                TenantEstado @default(activo)
-  agentEnabled          Boolean      @default(true) @map("agente_activo")
+  agentEnabled          Boolean      @default(false) @map("agente_activo")
   followupEnabled       Boolean      @default(true) @map("seguimiento_activo")
   followupFirstMessage  String       @default("Hola, ¿seguís interesado/a en la propiedad? Si querés te ayudo con cualquier duda.") @map("seguimiento_mensaje_1")
   followupSecondMessage String       @default("Te escribo por última vez por tu consulta. Si todavía te interesa, respondeme por acá y seguimos.") @map("seguimiento_mensaje_2")

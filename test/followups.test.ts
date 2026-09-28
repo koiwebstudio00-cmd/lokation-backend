@@ -15,6 +15,10 @@ describe.runIf(DB_AVAILABLE)("Seguimiento automático de WhatsApp", () => {
   beforeEach(async () => {
     await truncateAll();
     seeded = await seedTenantWithUsers("followups");
+    await adminDb().tenant.update({
+      where: { id: seeded.tenant.id },
+      data: { agentEnabled: true }
+    });
   });
 
   async function conversationFixture() {
