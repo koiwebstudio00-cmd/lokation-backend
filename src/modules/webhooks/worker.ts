@@ -65,24 +65,43 @@ export async function processDeliveriesOnce(): Promise<number> {
   );
 
   for (const d of pending) {
+    // La suspensión cancela el outbox en la BD; revalidar también aquí cubre
+    // un lote que el worker hubiera leído antes de la suspensión.
+    const current = await runWithContext(WORKER_CTX, (tx) =>
+      tx.webhookDelivery.findUnique({ where: { id: d.id }, select: { estado: true } })
+    );
+    if (current?.estado !== "pendiente") continue;
+    if (d.endpoint.tenantId) {
+      const tenant = await runWithContext({ rol: "auth" }, (tx) =>
+        tx.tenant.findUnique({ where: { id: d.endpoint.tenantId! }, select: { estado: true } })
+      );
+      if (tenant?.estado !== "activo") {
+        await runWithContext(WORKER_CTX, (tx) =>
+          tx.webhookDelivery.updateMany({
+            where: { id: d.id, estado: "pendiente" }, data: { estado: "fallida" }
+          })
+        );
+        continue;
+      }
+    }
     const result = await deliver(d);
     const intentos = d.intentos + 1;
 
     await runWithContext(WORKER_CTX, async (tx) => {
       if (result.ok) {
-        await tx.webhookDelivery.update({
-          where: { id: d.id },
+        await tx.webhookDelivery.updateMany({
+          where: { id: d.id, estado: "pendiente" },
           data: { estado: "entregada", httpStatus: result.status, intentos }
         });
       } else if (intentos >= MAX_INTENTOS) {
-        await tx.webhookDelivery.update({
-          where: { id: d.id },
+        await tx.webhookDelivery.updateMany({
+          where: { id: d.id, estado: "pendiente" },
           data: { estado: "fallida", httpStatus: result.status, intentos }
         });
       } else {
         const minutes = BACKOFF_MINUTES[intentos - 1] ?? 720;
-        await tx.webhookDelivery.update({
-          where: { id: d.id },
+        await tx.webhookDelivery.updateMany({
+          where: { id: d.id, estado: "pendiente" },
           data: {
             httpStatus: result.status,
             intentos,

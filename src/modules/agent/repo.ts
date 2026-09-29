@@ -188,6 +188,7 @@ export function findTenantFollowupSettings(tx: Tx, tenantId: string) {
   return tx.tenant.findUnique({
     where: { id: tenantId },
     select: {
+      estado: true,
       agentEnabled: true,
       followupEnabled: true,
       followupFirstMessage: true,

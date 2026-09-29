@@ -234,6 +234,12 @@ async function procesarGrupo(grupo: PendingEvent[]): Promise<ResultadoEvento> {
     // evento. No es transitorio — reintentar no lo va a resolver.
     return { ok: false, permanente: true, error: "cuenta no encontrada o inactiva" };
   }
+  const tenant = await runWithContext({ rol: "auth" }, (tx) =>
+    tx.tenant.findUnique({ where: { id: cuenta.tenantId }, select: { estado: true } })
+  );
+  if (tenant?.estado !== "activo") {
+    return { ok: false, permanente: true, error: "inmobiliaria suspendida" };
+  }
 
   if (primero.evento === "message.received") {
     const providerConversationId = conversationIdDe(payloadDe(primero));

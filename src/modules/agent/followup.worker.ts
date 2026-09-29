@@ -73,7 +73,7 @@ export async function processFollowupsOnce(opts: FollowupProcessOptions = {}) {
       }
     );
     const { settings, channel } = context;
-    if (!settings?.agentEnabled || !settings.followupEnabled) {
+    if (settings?.estado !== "activo" || !settings.agentEnabled || !settings.followupEnabled) {
       await runWithContext(WORKER_CTX, (tx) =>
         followups.cancel(tx, claimed.id, claimed.followupClaimedAt!)
       );
@@ -120,6 +120,10 @@ export async function processFollowupsOnce(opts: FollowupProcessOptions = {}) {
       ? settings.followupFirstMessage
       : settings.followupSecondMessage;
     try {
+      const currentTenant = await runWithContext({ rol: "auth" }, (tx) =>
+        tx.tenant.findUnique({ where: { id: claimed.tenantId }, select: { estado: true } })
+      );
+      if (currentTenant?.estado !== "activo") continue;
       const stillActive = await runWithContext(WORKER_CTX, (tx) =>
         followups.isClaimActive(
           tx,

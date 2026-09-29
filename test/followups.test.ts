@@ -6,8 +6,8 @@ import {
   registrarMensajes
 } from "../src/modules/agent/service.js";
 import { updateLead } from "../src/modules/crm/service.js";
-import { currentTenant, updateCurrentTenant } from "../src/modules/tenants/service.js";
-import { adminDb, DB_AVAILABLE, seedTenantWithUsers, truncateAll } from "./helpers.js";
+import { currentTenant, setTenantEstado, updateCurrentTenant } from "../src/modules/tenants/service.js";
+import { adminDb, DB_AVAILABLE, seedSuperAdmin, seedTenantWithUsers, truncateAll } from "./helpers.js";
 
 describe.runIf(DB_AVAILABLE)("Seguimiento automático de WhatsApp", () => {
   let seeded: Awaited<ReturnType<typeof seedTenantWithUsers>>;
@@ -52,6 +52,29 @@ describe.runIf(DB_AVAILABLE)("Seguimiento automático de WhatsApp", () => {
     });
     return { channel, lead, conversation };
   }
+
+  it("suspender cancela seguimientos y reactivar no envía mensajes atrasados", async () => {
+    const { conversation } = await conversationFixture();
+    const dueAt = new Date("2026-09-14T10:00:00.000Z");
+    await adminDb().conversation.update({
+      where: { id: conversation.id },
+      data: { followupStep: 1, followupDueAt: dueAt, lastLeadMessageAt: dueAt }
+    });
+    const operator = { userId: (await seedSuperAdmin()).id, rol: "super_admin" as const };
+    const send = vi.fn(async () => ({ id: "should-not-send" }));
+
+    await setTenantEstado(operator, seeded.tenant.id, "suspendido");
+    const cancelled = await adminDb().conversation.findUniqueOrThrow({ where: { id: conversation.id } });
+    expect(cancelled.followupStep).toBe(0);
+    expect(cancelled.followupDueAt).toBeNull();
+    expect(cancelled.followupClaimedAt).toBeNull();
+    await processFollowupsOnce({ now: dueAt, send });
+    expect(send).not.toHaveBeenCalled();
+
+    await setTenantEstado(operator, seeded.tenant.id, "activo");
+    await processFollowupsOnce({ now: dueAt, send });
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it("agenda a las 2 horas, envía dos mensajes y asigna el fantasma sin reasignación", async () => {
     const { channel, lead, conversation } = await conversationFixture();

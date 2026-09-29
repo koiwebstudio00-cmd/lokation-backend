@@ -4,8 +4,11 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { processDeliveriesOnce } from "../src/modules/webhooks/worker.js";
+import { setTenantEstado } from "../src/modules/tenants/service.js";
 import {
+  adminDb,
   DB_AVAILABLE,
+  seedSuperAdmin,
   seedTenantWithUsers,
   TEST_PASSWORD,
   truncateAll
@@ -27,10 +30,14 @@ describe.runIf(DB_AVAILABLE)("Webhooks: outbox, entrega firmada y reintentos", (
   const received: Received[] = [];
   let endpointId = "";
   let secret = "";
+  let tenantId = "";
+  let superAdminId = "";
 
   beforeAll(async () => {
     await truncateAll();
     const A = await seedTenantWithUsers("hooks");
+    tenantId = A.tenant.id;
+    superAdminId = (await seedSuperAdmin()).id;
     const agent = request.agent(app);
     const login = await agent
       .post("/v1/auth/login")
@@ -130,6 +137,57 @@ describe.runIf(DB_AVAILABLE)("Webhooks: outbox, entrega firmada y reintentos", (
     await processDeliveriesOnce();
     const pings = received.filter((r) => r.headers["x-koi-event"] === "ping");
     expect(pings.length).toBe(1);
+  });
+
+  it("suspender cancela entregas pendientes y reactivar no las reenvía", async () => {
+    const created = await request(app).post("/v1/public/hooks/leads").send({
+      nombre: "Antes de suspender",
+      mensaje: "prueba"
+    });
+    expect(created.status).toBe(201);
+    const delivery = await adminDb().webhookDelivery.findFirstOrThrow({
+      where: { endpointId, estado: "pendiente" }, orderBy: { createdAt: "desc" }
+    });
+    const before = received.length;
+    const operator = { userId: superAdminId, rol: "super_admin" as const };
+
+    await setTenantEstado(operator, tenantId, "suspendido");
+    expect((await adminDb().webhookDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).estado).toBe("fallida");
+    await processDeliveriesOnce();
+    expect(received).toHaveLength(before);
+
+    await setTenantEstado(operator, tenantId, "activo");
+    await processDeliveriesOnce();
+    expect(received).toHaveLength(before);
+    expect((await adminDb().webhookDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).estado).toBe("fallida");
+
+    const fresh = await request(app).post("/v1/public/hooks/leads").send({
+      nombre: "Después de reactivar",
+      mensaje: "prueba"
+    });
+    expect(fresh.status).toBe(201);
+    await processDeliveriesOnce();
+    expect(received).toHaveLength(before + 1);
+  });
+
+  it("el worker descarta una entrega si encuentra el tenant suspendido", async () => {
+    const created = await request(app).post("/v1/public/hooks/leads").send({
+      nombre: "En cola",
+      mensaje: "prueba"
+    });
+    expect(created.status).toBe(201);
+    const delivery = await adminDb().webhookDelivery.findFirstOrThrow({
+      where: { endpointId, estado: "pendiente" }, orderBy: { createdAt: "desc" }
+    });
+    const before = received.length;
+    await adminDb().tenant.update({ where: { id: tenantId }, data: { estado: "suspendido" } });
+    try {
+      await processDeliveriesOnce();
+      expect(received).toHaveLength(before);
+      expect((await adminDb().webhookDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).estado).toBe("fallida");
+    } finally {
+      await adminDb().tenant.update({ where: { id: tenantId }, data: { estado: "activo" } });
+    }
   });
 
   it("endpoint desactivado no recibe entregas", async () => {

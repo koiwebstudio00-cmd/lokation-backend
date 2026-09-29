@@ -707,6 +707,36 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
     expect(procesadosOtraVez).toBe(0);
   });
 
+  it("un tenant suspendido no dispara el agente ni reintenta eventos antiguos al reactivarse", async () => {
+    while ((await processChannelEventsOnce(yaSeEnfrio())) > 0) {
+      /* drenar eventos anteriores */
+    }
+    n8nRequests.length = 0;
+    const evento = eventoWhatsapp(ACCOUNT_ID, { conversationId: "conv_suspended" });
+    const body = JSON.stringify(evento);
+    const response = await request(app)
+      .post("/webhooks/zernio")
+      .set("Content-Type", "application/json")
+      .set("x-zernio-signature", firmar(body))
+      .send(body);
+    expect(response.status).toBe(200);
+
+    await adminDb().tenant.update({ where: { id: A.tenant.id }, data: { estado: "suspendido" } });
+    try {
+      await processChannelEventsOnce(yaSeEnfrio());
+      expect(n8nRequests).toHaveLength(0);
+      const stored = await adminDb().channelWebhookEvent.findUniqueOrThrow({
+        where: { zernioEventId: evento.id }
+      });
+      expect(stored.estado).toBe("error");
+      expect(stored.errorDetalle).toBe("inmobiliaria suspendida");
+    } finally {
+      await adminDb().tenant.update({ where: { id: A.tenant.id }, data: { estado: "activo" } });
+    }
+    expect(await processChannelEventsOnce(yaSeEnfrio())).toBe(0);
+    expect(n8nRequests).toHaveLength(0);
+  });
+
   // ── Buffer de ráfagas ──────────────────────────────────────────────────────
   // Zernio manda un webhook por mensaje; el worker los junta por conversación
   // para que Sofi conteste una vez por turno y no una vez por mensaje.

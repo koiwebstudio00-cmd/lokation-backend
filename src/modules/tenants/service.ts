@@ -114,6 +114,17 @@ export async function setTenantEstado(
         where: { userId: { in: users.map((user) => user.id) }, revokedAt: null },
         data: { revokedAt: new Date() }
       });
+      await tx.conversation.updateMany({
+        where: { tenantId: id, followupStep: { gt: 0 } },
+        data: { followupStep: 0, followupDueAt: null, followupClaimedAt: null }
+      });
+      const endpoints = await tx.webhookEndpoint.findMany({
+        where: { tenantId: id }, select: { id: true }
+      });
+      await tx.webhookDelivery.updateMany({
+        where: { endpointId: { in: endpoints.map((endpoint) => endpoint.id) }, estado: "pendiente" },
+        data: { estado: "fallida" }
+      });
     }
     return tenant;
   });
