@@ -11,11 +11,12 @@ export const INVITATION_TTL_DAYS = 7;
 export interface AccessClaims {
   userId: string;
   tenantId?: string;
+  authVersion?: number;
   rol: Exclude<Rol, "public" | "auth">;
 }
 
 export async function signAccessToken(claims: AccessClaims): Promise<string> {
-  return jwt.sign({ tenant_id: claims.tenantId ?? null, rol: claims.rol }, jwtSecret, {
+  return jwt.sign({ tenant_id: claims.tenantId ?? null, auth_version: claims.authVersion ?? null, rol: claims.rol }, jwtSecret, {
     subject: claims.userId,
     expiresIn: ACCESS_TTL,
     algorithm: "HS256"
@@ -27,6 +28,7 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims> {
   return {
     userId: payload.sub as string,
     tenantId: (payload.tenant_id as string | null) ?? undefined,
+    authVersion: (payload.auth_version as number | null) ?? undefined,
     rol: payload.rol as AccessClaims["rol"]
   };
 }

@@ -103,7 +103,18 @@ export async function setTenantEstado(
   id: string,
   estado: "activo" | "suspendido"
 ) {
-  return runWithContext(ctxOf(auth), (tx) =>
-    tx.tenant.update({ where: { id }, data: { estado } })
-  );
+  return runWithContext(ctxOf(auth), async (tx) => {
+    const tenant = await tx.tenant.update({
+      where: { id },
+      data: { estado, ...(estado === "suspendido" ? { authVersion: { increment: 1 } } : {}) }
+    });
+    if (estado === "suspendido") {
+      const users = await tx.user.findMany({ where: { tenantId: id }, select: { id: true } });
+      await tx.refreshToken.updateMany({
+        where: { userId: { in: users.map((user) => user.id) }, revokedAt: null },
+        data: { revokedAt: new Date() }
+      });
+    }
+    return tenant;
+  });
 }

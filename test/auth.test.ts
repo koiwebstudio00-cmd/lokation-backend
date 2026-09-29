@@ -19,6 +19,7 @@ describe.runIf(DB_AVAILABLE)("Auth por API", () => {
   beforeAll(async () => {
     await truncateAll();
     const a = await seedTenantWithUsers("alfa");
+    await seedTenantWithUsers("beta");
     await seedSuperAdmin();
     agenteEmail = a.agente.email;
     agenteId = a.agente.id;
@@ -86,6 +87,41 @@ describe.runIf(DB_AVAILABLE)("Auth por API", () => {
     // Reusar el refresh original (ya rotado) debe fallar.
     const r2 = await request(app).post("/v1/auth/refresh").set("Cookie", originalCookies);
     expect(r2.status).toBe(401);
+  });
+
+  it("suspender un tenant corta sesión activa, refresh y login sin afectar a otro", async () => {
+    const tenant = await adminDb().tenant.findUniqueOrThrow({ where: { slug: "alfa" } });
+    const sesionA = request.agent(app);
+    const sesionB = request.agent(app);
+    const operador = request.agent(app);
+    await sesionA.post("/v1/auth/login").send({ email: agenteEmail, password: TEST_PASSWORD }).expect(200);
+    await sesionB.post("/v1/auth/login").send({ email: "admin@beta.test", password: TEST_PASSWORD }).expect(200);
+    const superLogin = await operador.post("/v1/auth/login")
+      .send({ email: "super@test.test", password: TEST_PASSWORD }).expect(200);
+
+    try {
+      await operador.patch(`/v1/tenants/${tenant.id}`)
+        .set("x-csrf-token", superLogin.body.csrf_token)
+        .send({ estado: "suspendido" }).expect(200);
+
+      await sesionA.get("/v1/auth/me").expect(403);
+      await sesionA.post("/v1/auth/refresh").expect(401);
+      await request(app).post("/v1/auth/login")
+        .send({ email: agenteEmail, password: TEST_PASSWORD }).expect(403);
+      await sesionB.get("/v1/auth/me").expect(200);
+      await operador.get("/v1/auth/me").expect(200);
+    } finally {
+      await operador.patch(`/v1/tenants/${tenant.id}`)
+        .set("x-csrf-token", superLogin.body.csrf_token)
+        .send({ estado: "activo" }).expect(200);
+    }
+
+    // La cookie refresh anterior se revocó en la misma transacción de suspensión.
+    await sesionA.post("/v1/auth/refresh").expect(401);
+    // El JWT anterior sigue inválido incluso después de reactivar el tenant.
+    await sesionA.get("/v1/auth/me").expect(401);
+    await request(app).post("/v1/auth/login")
+      .send({ email: agenteEmail, password: TEST_PASSWORD }).expect(200);
   });
 
   it("reset de contraseña: token válido cambia la password y revoca sesiones", async () => {

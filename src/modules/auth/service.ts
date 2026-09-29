@@ -56,6 +56,15 @@ async function createSession(
   user: Parameters<typeof toSafeUser>[0],
   userAgent?: string
 ): Promise<Session> {
+  const tenant = user.tenantId
+    ? await tx.tenant.findUniqueOrThrow({
+        where: { id: user.tenantId },
+        select: { estado: true, authVersion: true }
+      })
+    : null;
+  if (tenant?.estado === "suspendido") {
+    throw new ApiError("FORBIDDEN", "La cuenta de la inmobiliaria está suspendida.");
+  }
   const refresh = randomToken();
   await tx.refreshToken.create({
     data: {
@@ -68,6 +77,7 @@ async function createSession(
   const access = await signAccessToken({
     userId: user.id,
     tenantId: user.tenantId ?? undefined,
+    authVersion: tenant?.authVersion,
     rol: user.rol as AccessClaims["rol"]
   });
   return { user: toSafeUser(user), access, refresh, csrf: randomToken() };
@@ -100,7 +110,7 @@ export async function refresh(refreshToken: string, userAgent?: string): Promise
       where: { tokenHash: sha256(refreshToken) },
       include: {
         user: {
-          include: { tenant: { select: { id: true, nombre: true, slug: true } } }
+          include: { tenant: { select: { id: true, nombre: true, slug: true, estado: true } } }
         }
       }
     });
@@ -109,6 +119,9 @@ export async function refresh(refreshToken: string, userAgent?: string): Promise
     }
     if (stored.user.estado !== "activo") {
       throw new ApiError("UNAUTHORIZED", "Usuario inactivo.");
+    }
+    if (stored.user.tenant?.estado === "suspendido") {
+      throw new ApiError("FORBIDDEN", "La cuenta de la inmobiliaria está suspendida.");
     }
     // Rotación: el token usado queda revocado.
     await tx.refreshToken.update({

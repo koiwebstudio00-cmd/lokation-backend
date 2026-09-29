@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { ApiError } from "../lib/errors.js";
 import { ACCESS_COOKIE, CSRF_COOKIE } from "../lib/cookies.js";
 import { verifyAccessToken, type AccessClaims } from "../lib/tokens.js";
+import { runWithContext } from "../lib/prisma.js";
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -25,6 +26,26 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   try {
     req.auth = await verifyAccessToken(token);
   } catch {
+    throw new ApiError("UNAUTHORIZED", "Sesión expirada o inválida.");
+  }
+
+  // El JWT puede seguir vigente después de suspender un tenant o desactivar
+  // un usuario. Validamos su estado actual en cada request autenticado.
+  const claims = req.auth;
+  const user = await runWithContext({ rol: "auth" }, (tx) =>
+    tx.user.findUnique({
+      where: { id: claims.userId },
+      select: { estado: true, rol: true, tenantId: true, tenant: { select: { estado: true, authVersion: true } } }
+    })
+  );
+  if (!user || user.estado !== "activo" || user.rol !== claims.rol ||
+      (user.tenantId ?? undefined) !== claims.tenantId) {
+    throw new ApiError("UNAUTHORIZED", "Sesión expirada o inválida.");
+  }
+  if (user.tenant?.estado === "suspendido") {
+    throw new ApiError("FORBIDDEN", "La cuenta de la inmobiliaria está suspendida.");
+  }
+  if (user.tenant && user.tenant.authVersion !== claims.authVersion) {
     throw new ApiError("UNAUTHORIZED", "Sesión expirada o inválida.");
   }
 
