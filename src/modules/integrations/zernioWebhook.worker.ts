@@ -17,6 +17,7 @@
 // mensaje descartado.
 //
 // Solo WhatsApp por ahora (regla 10 — Instagram queda para más adelante).
+import { randomUUID } from "node:crypto";
 import { config } from "../../config.js";
 import { emitEvent } from "../../lib/events.js";
 import { runWithContext } from "../../lib/prisma.js";
@@ -29,6 +30,7 @@ const WORKER_CTX = { rol: "worker" as const };
 // si se partiera en dos lotes, la segunda mitad saldría como un turno aparte y
 // el buffer no habría servido de nada.
 const BATCH = 100;
+const CLAIM_LEASE_MS = 60_000;
 
 interface ZernioEventPayload {
   id?: string;
@@ -343,6 +345,34 @@ export async function processChannelEventsOnce(opts: ProcessOptions = {}): Promi
   let despachados = 0;
 
   for (const grupo of grupos) {
+    const ids = grupo.map((e) => e.id);
+    const claimId = randomUUID();
+    const claimedAt = new Date();
+    const leaseExpiredAt = new Date(claimedAt.getTime() - CLAIM_LEASE_MS);
+    const claimed = await runWithContext(WORKER_CTX, (tx) =>
+      tx.channelWebhookEvent.updateMany({
+        where: {
+          id: { in: ids },
+          estado: "pendiente",
+          OR: [{ claimId: null }, { claimedAt: { lte: leaseExpiredAt } }]
+        },
+        data: { claimId, claimedAt }
+      })
+    );
+    if (claimed.count !== ids.length) {
+      // Si se reclamó solo parte de la ráfaga, liberarla. Nadie debe enviarla
+      // incompleta mientras otra réplica procesa el resto.
+      if (claimed.count > 0) {
+        await runWithContext(WORKER_CTX, (tx) =>
+          tx.channelWebhookEvent.updateMany({
+            where: { id: { in: ids }, estado: "pendiente", claimId },
+            data: { claimId: null, claimedAt: null }
+          })
+        );
+      }
+      continue;
+    }
+
     let resultado: ResultadoEvento;
     try {
       resultado = await procesarGrupo(grupo);
@@ -353,16 +383,14 @@ export async function processChannelEventsOnce(opts: ProcessOptions = {}): Promi
     // Los intentos se cuentan por grupo: si la ráfaga entera falló, todos sus
     // eventos avanzan el contador juntos y se agotan juntos.
     const intentos = Math.max(...grupo.map((e) => e.intentos)) + 1;
-    const ids = grupo.map((e) => e.id);
-
     await runWithContext(WORKER_CTX, (tx) =>
       tx.channelWebhookEvent.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids }, estado: "pendiente", claimId },
         data: resultado.ok
-          ? { estado: "procesado", procesadoAt: ahora }
+          ? { estado: "procesado", procesadoAt: ahora, errorDetalle: null, claimId: null, claimedAt: null }
           : resultado.permanente || intentos >= MAX_INTENTOS
-            ? { estado: "error", errorDetalle: resultado.error, intentos }
-            : { errorDetalle: resultado.error, intentos }
+            ? { estado: "error", errorDetalle: resultado.error, intentos, claimId: null, claimedAt: null }
+            : { errorDetalle: resultado.error, intentos, claimId: null, claimedAt: null }
       })
     );
     despachados += grupo.length;

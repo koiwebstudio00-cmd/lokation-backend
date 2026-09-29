@@ -710,6 +710,8 @@ model ChannelWebhookEvent {
   estado        String    @default("pendiente")
   intentos      Int       @default(0)
   errorDetalle  String?   @map("error_detalle")
+  claimId       String?   @map("claim_id") @db.Uuid
+  claimedAt     DateTime? @map("claimed_at") @db.Timestamptz(6)
   recibidoAt    DateTime  @default(now()) @map("recibido_at") @db.Timestamptz(6)
   procesadoAt   DateTime? @map("procesado_at") @db.Timestamptz(6)
 

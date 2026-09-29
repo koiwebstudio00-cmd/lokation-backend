@@ -330,6 +330,7 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
   let n8nMock: Server;
   const n8nRequests: { headers: Record<string, string | string[] | undefined>; body: string }[] = [];
   let n8nRespondWith = 200;
+  let n8nResponseGate: Promise<void> | null = null;
 
   beforeAll(async () => {
     await truncateAll();
@@ -348,8 +349,9 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
     n8nMock = createServer((req, res) => {
       let body = "";
       req.on("data", (c) => (body += c));
-      req.on("end", () => {
+      req.on("end", async () => {
         n8nRequests.push({ headers: req.headers, body });
+        if (n8nResponseGate) await n8nResponseGate;
         res.statusCode = n8nRespondWith;
         res.end();
       });
@@ -685,6 +687,7 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
       where: { zernioEventId: evento.id }
     });
     expect(reintentada?.estado).toBe("procesado");
+    expect(reintentada?.errorDetalle).toBeNull();
   });
 
   it("un evento de una cuenta desconocida queda en error, sin reintentar en loop", async () => {
@@ -757,6 +760,59 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
       .send(body);
     return evento;
   }
+
+  it("dos workers no despachan la misma ráfaga mientras el primer POST sigue abierto", async () => {
+    await drenar();
+    const firstEvent = await encolar(eventoWhatsapp(ACCOUNT_ID, { conversationId: "conv_claim_parallel", text: "hola" }));
+    const secondEvent = await encolar(eventoWhatsapp(ACCOUNT_ID, { conversationId: "conv_claim_parallel", text: "busco casa" }));
+    let release: (() => void) | undefined;
+    n8nResponseGate = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      const first = processChannelEventsOnce(yaSeEnfrio());
+      await vi.waitFor(() => expect(n8nRequests).toHaveLength(1));
+      expect(await processChannelEventsOnce(yaSeEnfrio())).toBe(0);
+      expect(n8nRequests).toHaveLength(1);
+      release!();
+      expect(await first).toBe(2);
+      const events = await adminDb().channelWebhookEvent.findMany({
+        where: { zernioEventId: { in: [firstEvent.id, secondEvent.id] } }
+      });
+      expect(events).toHaveLength(2);
+      expect(events.every((event) => event.estado === "procesado" && event.claimId === null)).toBe(true);
+    } finally {
+      release?.();
+      n8nResponseGate = null;
+    }
+  });
+
+  it("un claim parcial no divide la ráfaga; al vencer se recupera completa", async () => {
+    await drenar();
+    const first = await encolar(eventoWhatsapp(ACCOUNT_ID, {
+      conversationId: "conv_claim_partial", text: "primero"
+    }));
+    await encolar(eventoWhatsapp(ACCOUNT_ID, {
+      conversationId: "conv_claim_partial", text: "segundo"
+    }));
+    await adminDb().channelWebhookEvent.update({
+      where: { zernioEventId: first.id },
+      data: { claimId: randomUUID(), claimedAt: new Date() }
+    });
+
+    expect(await processChannelEventsOnce(yaSeEnfrio())).toBe(0);
+    expect(n8nRequests).toHaveLength(0);
+    const unclaimed = await adminDb().channelWebhookEvent.findMany({
+      where: { estado: "pendiente", claimId: null }
+    });
+    expect(unclaimed).toHaveLength(1);
+
+    await adminDb().channelWebhookEvent.update({
+      where: { zernioEventId: first.id },
+      data: { claimedAt: new Date(Date.now() - 120_000) }
+    });
+    expect(await processChannelEventsOnce(yaSeEnfrio())).toBe(2);
+    expect(n8nRequests).toHaveLength(1);
+    expect(JSON.parse(n8nRequests[0]!.body).data).toHaveLength(2);
+  });
 
   it("agrupa la ráfaga de una conversación en un solo POST a n8n", async () => {
     await drenar();
