@@ -19,7 +19,8 @@ export async function truncateAll() {
     `truncate tenants, users, invitations, refresh_tokens, password_resets,
      properties, property_images, leads, lead_notes, webhook_endpoints,
      webhook_deliveries, api_keys, conversations, conversation_messages,
-     vendedores_agente, handoffs, channel_accounts, channel_webhook_events
+     vendedores_agente, handoffs, channel_accounts, channel_webhook_events,
+     outbound_message_attempts
      restart identity cascade`
   );
 }

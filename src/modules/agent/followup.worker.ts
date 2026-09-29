@@ -2,6 +2,7 @@ import { zernioFetch } from "../../lib/zernio.js";
 import { runWithContext } from "../../lib/prisma.js";
 import * as agentRepo from "./repo.js";
 import * as followups from "./followup.repo.js";
+import * as outbound from "./outbound.repo.js";
 import { finalizarSeguimientoFantasma } from "./service.js";
 
 const WORKER_CTX = { rol: "worker" as const };
@@ -19,18 +20,21 @@ type SendFollowup = (input: {
   accountId: string;
   providerConversationId: string;
   message: string;
+  idempotencyKey: string;
 }) => Promise<SendResult>;
 
 async function sendThroughZernio(input: {
   accountId: string;
   providerConversationId: string;
   message: string;
+  idempotencyKey: string;
 }) {
   return zernioFetch<SendResult>(
     `/inbox/conversations/${encodeURIComponent(input.providerConversationId)}/messages`,
     {
       method: "POST",
-      body: { accountId: input.accountId, message: input.message }
+      body: { accountId: input.accountId, message: input.message },
+      headers: { "Idempotency-Key": input.idempotencyKey }
     }
   );
 }
@@ -119,6 +123,9 @@ export async function processFollowupsOnce(opts: FollowupProcessOptions = {}) {
     const message = claimed.followupStep === 1
       ? settings.followupFirstMessage
       : settings.followupSecondMessage;
+    const operationKey = `followup:${claimed.id}:${claimed.lastLeadMessageAt?.toISOString() ?? "sin-lead"}:${claimed.followupStep}`;
+    let attemptId: string | null = null;
+    let sentConfirmed = false;
     try {
       const currentTenant = await runWithContext({ rol: "auth" }, (tx) =>
         tx.tenant.findUnique({ where: { id: claimed.tenantId }, select: { estado: true } })
@@ -133,11 +140,48 @@ export async function processFollowupsOnce(opts: FollowupProcessOptions = {}) {
         )
       );
       if (!stillActive) continue;
+      const prepared = await runWithContext(WORKER_CTX, (tx) =>
+        outbound.prepareAttempt(tx, {
+          tenantId: claimed.tenantId,
+          conversationId: claimed.id,
+          operationKey,
+          content: message
+        })
+      );
+      attemptId = prepared.attempt.id;
+      if (!prepared.created) {
+        if (prepared.attempt.status === "sent") {
+          await runWithContext(WORKER_CTX, (tx) =>
+            followups.completeMessage(tx, {
+              tenantId: claimed.tenantId,
+              conversationId: claimed.id,
+              claimedAt: claimed.followupClaimedAt!,
+              currentStep: claimed.followupStep as 1 | 2,
+              nextDueAt: new Date(now.getTime() + FOLLOWUP_DELAY_MS),
+              content: prepared.attempt.content,
+              providerMessageId: prepared.attempt.providerMessageId
+            })
+          );
+        } else {
+          // Una caída pudo ocurrir después de enviar y antes de guardar el 2xx.
+          // Zernio no garantiza el replay de 5xx y vence la clave a las 24 h.
+          await runWithContext(WORKER_CTX, async (tx) => {
+            await outbound.markUncertain(tx, prepared.attempt.id);
+            await followups.cancel(tx, claimed.id, claimed.followupClaimedAt!);
+          });
+        }
+        continue;
+      }
       const result = await send({
         accountId: channel.zernioAccountId,
         providerConversationId: claimed.providerConversationId!,
-        message
+        message,
+        idempotencyKey: prepared.attempt.id
       });
+      await runWithContext(WORKER_CTX, (tx) =>
+        outbound.markSent(tx, prepared.attempt.id, providerMessageId(result))
+      );
+      sentConfirmed = true;
       await runWithContext(WORKER_CTX, (tx) =>
         followups.completeMessage(tx, {
           tenantId: claimed.tenantId,
@@ -151,14 +195,19 @@ export async function processFollowupsOnce(opts: FollowupProcessOptions = {}) {
       );
     } catch (error) {
       console.error(`[followups] error en conversación ${claimed.id}:`, error);
-      await runWithContext(WORKER_CTX, (tx) =>
-        followups.retryLater(
-          tx,
-          claimed.id,
-          claimed.followupClaimedAt!,
-          new Date(now.getTime() + FOLLOWUP_RETRY_MS)
-        )
-      );
+      await runWithContext(WORKER_CTX, async (tx) => {
+        if (attemptId && !sentConfirmed) {
+          await outbound.markUncertain(tx, attemptId);
+          await followups.cancel(tx, claimed.id, claimed.followupClaimedAt!);
+        } else {
+          await followups.retryLater(
+            tx,
+            claimed.id,
+            claimed.followupClaimedAt!,
+            new Date(now.getTime() + FOLLOWUP_RETRY_MS)
+          );
+        }
+      });
     }
   }
 
