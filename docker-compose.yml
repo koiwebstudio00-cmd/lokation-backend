@@ -1,6 +1,8 @@
 # Compose opcional para levantar solo Postgres en desarrollo. La API corre con
 # `npm run dev`; producción usa la imagen del Dockerfile desplegada por Dokploy.
 
+name: ubikka
+
 services:
   db:
     image: postgres:17-alpine
