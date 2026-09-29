@@ -643,6 +643,7 @@ model OutboundMessageAttempt {
   conversationId    String    @map("conversation_id") @db.Uuid
   operationKey      String    @map("operation_key")
   content           String
+  handoffId         String?   @map("handoff_id") @db.Uuid
   status            String    @default("attempted")
   providerMessageId String?   @map("provider_message_id")
   attemptedAt       DateTime  @default(now()) @map("attempted_at") @db.Timestamptz(6)

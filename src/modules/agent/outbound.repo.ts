@@ -2,9 +2,11 @@ import type { Tx } from "../../lib/prisma.js";
 
 export async function prepareAttempt(
   tx: Tx,
-  input: { tenantId: string; conversationId: string; operationKey: string; content: string }
+  input: { tenantId: string; conversationId: string; operationKey: string; content: string; handoffId?: string }
 ) {
-  const { count } = await tx.outboundMessageAttempt.createMany({ data: [input], skipDuplicates: true });
+  const { count } = await tx.outboundMessageAttempt.createMany({
+    data: [{ ...input, handoffId: input.handoffId ?? null }], skipDuplicates: true
+  });
   const attempt = await tx.outboundMessageAttempt.findUniqueOrThrow({
     where: { tenantId_operationKey: { tenantId: input.tenantId, operationKey: input.operationKey } }
   });
@@ -25,5 +27,12 @@ export function markUncertain(tx: Tx, id: string) {
   return tx.outboundMessageAttempt.updateMany({
     where: { id, status: "attempted" },
     data: { status: "uncertain", resolvedAt: new Date() }
+  });
+}
+
+export function markCancelled(tx: Tx, id: string) {
+  return tx.outboundMessageAttempt.updateMany({
+    where: { id, status: "attempted" },
+    data: { status: "cancelled", resolvedAt: new Date() }
   });
 }

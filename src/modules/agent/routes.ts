@@ -6,6 +6,7 @@ import { requireApiKey } from "../../middleware/apiKey.js";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { ESTADOS, MASCOTAS, AMOBLADO } from "../../lib/property-opciones.js";
 import * as agent from "./service.js";
+import { dispatchAgentMessage } from "./dispatch.service.js";
 import { resumenSchema } from "./resumen.js";
 import { zoneAlternatives } from "./property-search.js";
 
@@ -246,6 +247,28 @@ agentRoutes.post(
         }))
       )
     );
+  }
+);
+
+agentRoutes.post(
+  "/agent/conversations/:id/send",
+  requireApiKey("agent:write"),
+  agentLimiter,
+  async (req, res) => {
+    const id = idParam().parse(req.params.id);
+    const body = z.object({
+      operation_key: z.string().trim().min(8).max(200),
+      contenido: z.string().trim().min(1).max(10000),
+      handoff_id: z.string().uuid().optional()
+    }).strict().parse(req.body);
+    const result = await dispatchAgentMessage({
+      tenantId: tenantOf(req),
+      conversationId: id,
+      operationKey: body.operation_key,
+      content: body.contenido,
+      handoffId: body.handoff_id
+    });
+    res.status(result.status === "cancelled" ? 409 : 200).json(result);
   }
 );
 

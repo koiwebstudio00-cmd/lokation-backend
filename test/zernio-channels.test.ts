@@ -452,6 +452,7 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
     expect(recibido.channel_account_id).toBe(channelAccountId);
     expect(recibido.zernio_account_id).toBe(ACCOUNT_ID);
     expect(recibido.provider_conversation_id).toBe(evento.message.conversationId);
+    expect(recibido.turn_id).toMatch(/^[0-9a-f]{64}$/);
     // Mismo formato batch que mandaba Kapso: el nodo `normalizar` de n8n lee
     // una lista, aunque traiga un solo mensaje.
     expect(recibido.data).toHaveLength(1);
@@ -665,6 +666,7 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
   });
 
   it("si n8n no responde 2xx, el evento se reintenta (transitorio, no permanente)", async () => {
+    const requestsBefore = n8nRequests.length;
     n8nRespondWith = 500;
     const evento = eventoWhatsapp(ACCOUNT_ID);
     const body = JSON.stringify(evento);
@@ -688,6 +690,9 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
     });
     expect(reintentada?.estado).toBe("procesado");
     expect(reintentada?.errorDetalle).toBeNull();
+    const turns = n8nRequests.slice(requestsBefore).map((entry) => JSON.parse(entry.body).turn_id);
+    expect(turns).toHaveLength(2);
+    expect(turns[0]).toBe(turns[1]);
   });
 
   it("un evento de una cuenta desconocida queda en error, sin reintentar en loop", async () => {

@@ -45,7 +45,8 @@ export function getPrisma(): PrismaClient {
  */
 export async function runWithContext<T>(
   ctx: RlsContext,
-  fn: (tx: Tx) => Promise<T>
+  fn: (tx: Tx) => Promise<T>,
+  options?: { maxWait?: number; timeout?: number }
 ): Promise<T> {
   return getPrisma().$transaction(async (tx: Tx) => {
     await tx.$executeRaw`
@@ -55,5 +56,5 @@ export async function runWithContext<T>(
         set_config('app.rol', ${ctx.rol}, true)
     `;
     return fn(tx);
-  });
+  }, options);
 }

@@ -17,7 +17,7 @@
 // mensaje descartado.
 //
 // Solo WhatsApp por ahora (regla 10 — Instagram queda para más adelante).
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { config } from "../../config.js";
 import { emitEvent } from "../../lib/events.js";
 import { runWithContext } from "../../lib/prisma.js";
@@ -71,6 +71,7 @@ class PermanentError extends Error {}
 async function despertarAgente(
   cuenta: { id: string; tenantId: string; canal: string; zernioAccountId: string },
   providerConversationId: string,
+  turnId: string,
   payloads: unknown[]
 ) {
   if (!config.N8N_WHATSAPP_WEBHOOK_URL) {
@@ -85,6 +86,7 @@ async function despertarAgente(
       channel_account_id: cuenta.id,
       zernio_account_id: cuenta.zernioAccountId,
       provider_conversation_id: providerConversationId,
+      turn_id: turnId,
       data: payloads
     }),
     signal: AbortSignal.timeout(10_000)
@@ -249,7 +251,12 @@ async function procesarGrupo(grupo: PendingEvent[]): Promise<ResultadoEvento> {
       return { ok: false, permanente: true, error: "message.received sin conversationId" };
     }
     try {
-      await despertarAgente(cuenta, providerConversationId, grupo.map((e) => e.payload));
+      // El primer evento permanece estable en un reintento, aunque lleguen
+      // mensajes nuevos a la misma ráfaga. El motor usa este ID por fragmento.
+      const turnId = createHash("sha256")
+        .update(`${cuenta.id}:${providerConversationId}:${primero.zernioEventId}`)
+        .digest("hex");
+      await despertarAgente(cuenta, providerConversationId, turnId, grupo.map((e) => e.payload));
     } catch (err) {
       if (err instanceof PermanentError) {
         return { ok: false, permanente: true, error: err.message };
