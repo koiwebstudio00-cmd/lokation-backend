@@ -311,10 +311,18 @@ export interface MensajeNuevo {
   meta?: Record<string, unknown>;
 }
 
-export function insertMensajes(tx: Tx, data: MensajeNuevo[]) {
-  return tx.conversationMessage.createMany({
-    data: data.map((m) => ({ ...m, meta: aJson(m.meta) }))
-  });
+export async function insertMensajes(tx: Tx, data: MensajeNuevo[]) {
+  const inserted: MensajeNuevo[] = [];
+  // La clave única está acotada a la conversación. Insertar de a uno permite
+  // distinguir los mensajes nuevos de los reintentos dentro de un mismo lote.
+  for (const message of data) {
+    const { count } = await tx.conversationMessage.createMany({
+      data: [{ ...message, meta: aJson(message.meta) }],
+      skipDuplicates: true
+    });
+    if (count) inserted.push(message);
+  }
+  return inserted;
 }
 
 /**

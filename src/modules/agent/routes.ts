@@ -215,6 +215,7 @@ const mensajesSchema = z.object({
         tipo: z.enum(["texto", "audio", "imagen", "documento", "plantilla"]).optional(),
         contenido: z.string().trim().min(1).max(10000),
         media_url: z.string().url().optional(),
+        provider_message_id: z.string().trim().min(1).max(512).optional(),
         meta: z.record(z.unknown()).optional()
       })
     )
@@ -238,6 +239,9 @@ agentRoutes.post(
           tipo: m.tipo,
           contenido: m.contenido,
           mediaUrl: m.media_url,
+          providerMessageId: m.provider_message_id ??
+            (typeof m.meta?.provider_message_id === "string" && m.meta.provider_message_id.trim().length > 0 && m.meta.provider_message_id.length <= 512
+              ? m.meta.provider_message_id.trim() : undefined),
           meta: m.meta
         }))
       )

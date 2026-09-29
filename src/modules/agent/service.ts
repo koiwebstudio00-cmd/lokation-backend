@@ -367,6 +367,7 @@ export interface MensajeInput {
   tipo?: "texto" | "audio" | "imagen" | "documento" | "plantilla";
   contenido: string;
   mediaUrl?: string;
+  providerMessageId?: string;
   meta?: Record<string, unknown>;
 }
 
@@ -377,7 +378,7 @@ export async function registrarMensajes(
 ) {
   return runWithContext(agentCtx(tenantId), async (tx) => {
     let conv = await requireConversacion(tx, conversationId);
-    const { count } = await repo.insertMensajes(
+    const inserted = await repo.insertMensajes(
       tx,
       mensajes.map((m) => ({
         tenantId,
@@ -386,6 +387,7 @@ export async function registrarMensajes(
         tipo: m.tipo ?? "texto",
         contenido: m.contenido,
         mediaUrl: m.mediaUrl ?? null,
+        providerMessageId: m.providerMessageId,
         meta: m.meta
       }))
     );
@@ -393,11 +395,11 @@ export async function registrarMensajes(
     const now = new Date();
     let lastLeadIndex = -1;
     let lastAgentIndex = -1;
-    mensajes.forEach((message, index) => {
+    inserted.forEach((message, index) => {
       if (message.rol === "lead") lastLeadIndex = index;
       if (message.rol === "agente_ia") lastAgentIndex = index;
     });
-    const lastAgent = lastAgentIndex >= 0 ? mensajes[lastAgentIndex] : undefined;
+    const lastAgent = lastAgentIndex >= 0 ? inserted[lastAgentIndex] : undefined;
     const automaticFollowup = lastAgent?.meta?.automatic_followup === true;
 
     if (lastLeadIndex >= 0) {
@@ -430,7 +432,7 @@ export async function registrarMensajes(
         });
       }
     }
-    return { creados: count, conversation: conversacionPayload(conv) };
+    return { creados: inserted.length, conversation: conversacionPayload(conv) };
   });
 }
 

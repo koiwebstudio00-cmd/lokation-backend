@@ -331,6 +331,38 @@ describe.runIf(DB_AVAILABLE)("Agente de IA", () => {
     expect(typeof ctx.body.mensajes[0].id).toBe("string");
   });
 
+  it("deduplica mensajes reintentados por ID del proveedor dentro de cada conversación", async () => {
+    const openA = await request(app).post("/v1/agent/conversations")
+      .set("x-api-key", keyAgente)
+      .send({ canal: "whatsapp", canal_ref: "+5493817766001" });
+    const openB = await request(app).post("/v1/agent/conversations")
+      .set("x-api-key", keyB)
+      .send({ canal: "whatsapp", canal_ref: "+5493817766002" });
+    expect(openA.status).toBe(201);
+    expect(openB.status).toBe(201);
+
+    const pathA = `/v1/agent/conversations/${openA.body.conversation.id}/messages`;
+    const body = { mensajes: [
+      { rol: "lead", contenido: "Quiero visitar", meta: { provider_message_id: "wamid-visit-1" } },
+      { rol: "agente_ia", contenido: "Te ayudo", provider_message_id: "out-visit-1" }
+    ] };
+    const first = await request(app).post(pathA).set("x-api-key", keyAgente).send(body);
+    const retry = await request(app).post(pathA).set("x-api-key", keyAgente).send(body);
+    expect(first.status).toBe(201);
+    expect(first.body.creados).toBe(2);
+    expect(retry.status).toBe(201);
+    expect(retry.body.creados).toBe(0);
+    expect(await adminDb().conversationMessage.count({ where: { conversationId: openA.body.conversation.id } })).toBe(2);
+
+    const foreign = await request(app).post(pathA).set("x-api-key", keyB).send(body);
+    expect(foreign.status).toBe(404);
+    const ownB = await request(app)
+      .post(`/v1/agent/conversations/${openB.body.conversation.id}/messages`)
+      .set("x-api-key", keyB).send(body);
+    expect(ownB.status).toBe(201);
+    expect(ownB.body.creados).toBe(2);
+  });
+
   it("guarda el resumen y lo baja a las columnas del perfil", async () => {
     const res = await request(app)
       .put(`/v1/agent/conversations/${convId}/resumen`)

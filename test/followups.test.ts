@@ -141,6 +141,34 @@ describe.runIf(DB_AVAILABLE)("Seguimiento automático de WhatsApp", () => {
     expect(timeout.reasignados).toHaveLength(0);
   });
 
+  it("un reintento de mensajes no reinicia ni cancela el seguimiento", async () => {
+    const { conversation } = await conversationFixture();
+    const lead = { rol: "lead" as const, contenido: "¿Sigue disponible?", providerMessageId: "in-1" };
+    const agent = { rol: "agente_ia" as const, contenido: "Sí, sigue disponible.", providerMessageId: "out-1" };
+    const first = await registrarMensajes(seeded.tenant.id, conversation.id, [lead, agent]);
+    expect(first.creados).toBe(2);
+    const before = await adminDb().conversation.findUniqueOrThrow({ where: { id: conversation.id } });
+    expect(before.followupStep).toBe(1);
+
+    const retry = await registrarMensajes(seeded.tenant.id, conversation.id, [lead, agent]);
+    expect(retry.creados).toBe(0);
+    const after = await adminDb().conversation.findUniqueOrThrow({ where: { id: conversation.id } });
+    expect(after.followupStep).toBe(1);
+    expect(after.followupDueAt?.getTime()).toBe(before.followupDueAt?.getTime());
+    expect(after.lastLeadMessageAt?.getTime()).toBe(before.lastLeadMessageAt?.getTime());
+
+    const mixed = await registrarMensajes(seeded.tenant.id, conversation.id, [
+      lead,
+      { ...agent, providerMessageId: "out-2", contenido: "También puedo mostrarte fotos." }
+    ]);
+    expect(mixed.creados).toBe(1);
+    const afterMixed = await adminDb().conversation.findUniqueOrThrow({ where: { id: conversation.id } });
+    expect(afterMixed.followupStep).toBe(1);
+    expect(afterMixed.followupDueAt!.getTime()).toBeGreaterThanOrEqual(before.followupDueAt!.getTime());
+    expect(afterMixed.lastLeadMessageAt?.getTime()).toBe(before.lastLeadMessageAt?.getTime());
+    expect(await adminDb().conversationMessage.count({ where: { conversationId: conversation.id } })).toBe(3);
+  });
+
   it("una respuesta del lead cancela inmediatamente los seguimientos", async () => {
     const { conversation } = await conversationFixture();
     await registrarMensajes(seeded.tenant.id, conversation.id, [
