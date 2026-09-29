@@ -460,6 +460,8 @@ model WebhookDelivery {
   httpStatus  Int?           @map("http_status")
   estado      DeliveryEstado @default(pendiente)
   nextRetryAt DateTime?      @map("next_retry_at") @db.Timestamptz(6)
+  claimId     String?        @map("claim_id") @db.Uuid
+  claimedAt   DateTime?      @map("claimed_at") @db.Timestamptz(6)
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)

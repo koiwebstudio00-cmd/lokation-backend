@@ -1,12 +1,13 @@
 // Worker de entregas (outbox): toma deliveries pendientes y hace el POST con
 // firma HMAC. Reintentos con backoff exponencial. Ver webhooks.md §3-4.
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { runWithContext } from "../../lib/prisma.js";
 
 const WORKER_CTX = { rol: "worker" as const };
 const BACKOFF_MINUTES = [1, 5, 30, 120, 720];
 const MAX_INTENTOS = BACKOFF_MINUTES.length;
 const TIMEOUT_MS = 10_000;
+const CLAIM_LEASE_MS = 60_000;
 const BATCH = 20;
 
 interface PendingDelivery {
@@ -34,11 +35,11 @@ async function deliver(d: PendingDelivery): Promise<{ ok: boolean; status: numbe
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "KoiPlataforma-Webhooks/1.0",
-        "X-Koi-Event": d.evento,
-        "X-Koi-Delivery": d.id,
-        "X-Koi-Signature": `sha256=${signature}`,
-        "X-Koi-Timestamp": timestamp
+        "User-Agent": "Ubikka-Webhooks/1.0",
+        "X-Ubikka-Event": d.evento,
+        "X-Ubikka-Delivery": d.id,
+        "X-Ubikka-Signature": `sha256=${signature}`,
+        "X-Ubikka-Timestamp": timestamp
       },
       body,
       signal: AbortSignal.timeout(TIMEOUT_MS)
@@ -64,13 +65,23 @@ export async function processDeliveriesOnce(): Promise<number> {
     })
   );
 
+  let processed = 0;
   for (const d of pending) {
-    // La suspensión cancela el outbox en la BD; revalidar también aquí cubre
-    // un lote que el worker hubiera leído antes de la suspensión.
-    const current = await runWithContext(WORKER_CTX, (tx) =>
-      tx.webhookDelivery.findUnique({ where: { id: d.id }, select: { estado: true } })
+    const claimId = randomUUID();
+    const claimedAt = new Date();
+    const leaseExpiredAt = new Date(claimedAt.getTime() - CLAIM_LEASE_MS);
+    const claimed = await runWithContext(WORKER_CTX, (tx) =>
+      tx.webhookDelivery.updateMany({
+        where: {
+          id: d.id,
+          estado: "pendiente",
+          OR: [{ claimId: null }, { claimedAt: { lte: leaseExpiredAt } }]
+        },
+        data: { claimId, claimedAt }
+      })
     );
-    if (current?.estado !== "pendiente") continue;
+    if (claimed.count === 0) continue;
+    processed += 1;
     if (d.endpoint.tenantId) {
       const tenant = await runWithContext({ rol: "auth" }, (tx) =>
         tx.tenant.findUnique({ where: { id: d.endpoint.tenantId! }, select: { estado: true } })
@@ -78,7 +89,8 @@ export async function processDeliveriesOnce(): Promise<number> {
       if (tenant?.estado !== "activo") {
         await runWithContext(WORKER_CTX, (tx) =>
           tx.webhookDelivery.updateMany({
-            where: { id: d.id, estado: "pendiente" }, data: { estado: "fallida" }
+            where: { id: d.id, estado: "pendiente", claimId },
+            data: { estado: "fallida", claimId: null, claimedAt: null }
           })
         );
         continue;
@@ -90,28 +102,30 @@ export async function processDeliveriesOnce(): Promise<number> {
     await runWithContext(WORKER_CTX, async (tx) => {
       if (result.ok) {
         await tx.webhookDelivery.updateMany({
-          where: { id: d.id, estado: "pendiente" },
-          data: { estado: "entregada", httpStatus: result.status, intentos }
+          where: { id: d.id, estado: "pendiente", claimId },
+          data: { estado: "entregada", httpStatus: result.status, intentos, claimId: null, claimedAt: null }
         });
       } else if (intentos >= MAX_INTENTOS) {
         await tx.webhookDelivery.updateMany({
-          where: { id: d.id, estado: "pendiente" },
-          data: { estado: "fallida", httpStatus: result.status, intentos }
+          where: { id: d.id, estado: "pendiente", claimId },
+          data: { estado: "fallida", httpStatus: result.status, intentos, claimId: null, claimedAt: null }
         });
       } else {
         const minutes = BACKOFF_MINUTES[intentos - 1] ?? 720;
         await tx.webhookDelivery.updateMany({
-          where: { id: d.id, estado: "pendiente" },
+          where: { id: d.id, estado: "pendiente", claimId },
           data: {
             httpStatus: result.status,
             intentos,
-            nextRetryAt: new Date(Date.now() + minutes * 60_000)
+            nextRetryAt: new Date(Date.now() + minutes * 60_000),
+            claimId: null,
+            claimedAt: null
           }
         });
       }
     });
   }
-  return pending.length;
+  return processed;
 }
 
 let timer: NodeJS.Timeout | null = null;

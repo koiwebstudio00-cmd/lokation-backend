@@ -50,13 +50,13 @@ Headers:
 
 ```
 Content-Type: application/json
-X-Koi-Event: property.created
-X-Koi-Delivery: <delivery_id>
-X-Koi-Signature: sha256=<HMAC-SHA256(secret, raw_body)>
-X-Koi-Timestamp: <unix>
+X-Ubikka-Event: property.created
+X-Ubikka-Delivery: <delivery_id>
+X-Ubikka-Signature: sha256=<HMAC-SHA256(secret, raw_body)>
+X-Ubikka-Timestamp: <unix>
 ```
 
-**Verificación del receptor:** recomputar el HMAC sobre el body crudo y comparar en tiempo constante; rechazar si `|now - timestamp| > 5 min` (anti-replay). El receptor debe ser **idempotente** por `X-Koi-Delivery` (los reintentos reenvían el mismo id).
+**Verificación del receptor:** recomputar el HMAC sobre el body crudo y comparar en tiempo constante; rechazar si `|now - timestamp| > 5 min` (anti-replay). El receptor debe ser **idempotente** por `X-Ubikka-Delivery` (los reintentos reenvían el mismo id).
 
 ## 4. Entrega y reintentos (patrón outbox)
 
@@ -66,17 +66,16 @@ X-Koi-Timestamp: <unix>
 4. El código actual no auto-desactiva endpoints por fallas consecutivas ni envía un email por ese motivo.
 5. Tampoco existe todavía un job de retención/limpieza de deliveries.
 
-El worker selecciona pendientes y recién actualiza su estado después del POST;
-no hay un reclamo atómico previo. Como el `setInterval` tampoco espera la pasada
-anterior, una entrega lenta, dos réplicas o dos pasadas superpuestas pueden
-enviar la misma delivery en paralelo. El receptor debe mantener idempotencia por
-`X-Koi-Delivery`, pero la cola todavía necesita un mecanismo de claim/lease.
+El worker reclama cada entrega de forma atómica con `claim_id` y un lease de
+60 segundos. Dos pasadas simultáneas no la envían en paralelo. Si el proceso
+cae después de que el receptor aceptó el POST, el lease vence y puede haber un
+reintento: el receptor debe deduplicar por `X-Ubikka-Delivery`.
 
 ## 5. Seguridad
 
 - Secret por endpoint, generado por la plataforma (32 bytes hex), visible una sola vez al crear; rotable (`PATCH /webhooks/:id` con `{ rotate_secret: true }`).
 - Solo HTTPS. URLs a IPs privadas/loopback rechazadas (anti-SSRF).
-- El worker envía desde el VPS con `User-Agent: KoiPlataforma-Webhooks/1.0`.
+- El worker envía con `User-Agent: Ubikka-Webhooks/1.0`.
 
 ## 6. Integraciones previstas (consumidores)
 
@@ -84,8 +83,8 @@ enviar la misma delivery en paralelo. El receptor debe mantener idempotencia por
 |---|---|---|
 | Sitios de clientes (módulo export) | `property.created/updated/deleted` | Aviso de cambios para invalidar cache/sincronizar réplicas (`api-spec.md` §9) |
 | Sync portales (Zonaprop/ML) | `property.created/updated/deleted` | Middleware traductor por portal, post-MVP; el contrato ya lo soporta |
-| n8n / automatizaciones Koi | `lead.created`, `lead.updated`, `property.*` | `lead.assigned` requiere corregir primero el catálogo de eventos |
-| Métricas Koi (global) | `tenant.*`, `user.joined` | Endpoint global super admin |
+| Automatizaciones Ubikka | `lead.created`, `lead.updated`, `property.*` | `lead.assigned` requiere corregir primero el catálogo de eventos |
+| Métricas Ubikka (global) | `tenant.*`, `user.joined` | Endpoint global super admin |
 
 ## 7. Webhook entrante de Zernio
 

@@ -123,7 +123,7 @@ export async function setTenantEstado(
       });
       await tx.webhookDelivery.updateMany({
         where: { endpointId: { in: endpoints.map((endpoint) => endpoint.id) }, estado: "pendiente" },
-        data: { estado: "fallida" }
+        data: { estado: "fallida", claimId: null, claimedAt: null }
       });
     }
     return tenant;
