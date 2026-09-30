@@ -43,7 +43,7 @@ tenantRoutes.patch("/tenants/current", requireRole("admin"), async (req, res) =>
       logo_url: z.string().url().nullable().optional(),
       config_sitio: z.record(z.unknown()).optional(),
       agent_config: z.object({
-        model: z.string().trim().regex(/^[a-z0-9][a-z0-9._-]*\/[a-zA-Z0-9._-]+$/).max(120),
+        model: z.string().trim().regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,119}$/, "Identificador de modelo OpenAI inválido."),
         instructions: z.string().trim().min(20).max(6000)
       }).strict().optional(),
       agente_activo: z.boolean().optional(),

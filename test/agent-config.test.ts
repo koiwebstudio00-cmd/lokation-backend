@@ -37,7 +37,7 @@ describe.runIf(DB_AVAILABLE)("Configuración del agente por inmobiliaria", () =>
   });
 
   it("guarda instrucciones de A sin exponerlas a B", async () => {
-    const config = { model: "openai/modelo-ejemplo", instructions: "Atendé consultas inmobiliarias de la empresa A." };
+    const config = { model: "gpt-5-mini", instructions: "Atendé consultas inmobiliarias de la empresa A." };
     const saved = await adminA.patch("/v1/tenants/current")
       .set("x-csrf-token", csrfA).send({ agent_config: config });
     expect(saved.status).toBe(200);
@@ -56,5 +56,9 @@ describe.runIf(DB_AVAILABLE)("Configuración del agente por inmobiliaria", () =>
     const bad = await adminB.patch("/v1/tenants/current")
       .set("x-csrf-token", csrfB).send({ agent_config: { model: "x", instructions: "corto" } });
     expect(bad.status).toBe(400);
+    const gatewayModel = await adminB.patch("/v1/tenants/current")
+      .set("x-csrf-token", csrfB)
+      .send({ agent_config: { model: "openai/gpt-5-mini", instructions: "Atendé consultas inmobiliarias de la empresa B." } });
+    expect(gatewayModel.status).toBe(400);
   });
 });
