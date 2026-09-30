@@ -1,4 +1,5 @@
 import { ApiError } from "../../lib/errors.js";
+import { config } from "../../config.js";
 import { invitationEmail, resetEmail, sendMail } from "../../lib/mailer.js";
 import { hashPassword, verifyPassword } from "../../lib/passwords.js";
 import { runWithContext, type Tx } from "../../lib/prisma.js";
@@ -232,8 +233,17 @@ export async function createInvitation(
       expiresAt: addDays(INVITATION_TTL_DAYS)
     }
   });
-  await sendMail(invitationEmail(data.email, token, tenantNombre));
-  return inv;
+  const delivered = await sendMail(invitationEmail(data.email, token, tenantNombre));
+  if (config.SMTP_HOST && !delivered) {
+    throw new ApiError("INTERNAL", "No pudimos enviar la invitación. Probá de nuevo.");
+  }
+  return {
+    ...inv,
+    // En desarrollo sin SMTP, el operador necesita entregar el enlace de alta.
+    devInvitationUrl: config.NODE_ENV !== "production" && !config.SMTP_HOST
+      ? `${config.FRONT_URL}/aceptar-invitacion?token=${token}`
+      : undefined
+  };
 }
 
 export async function me(ctx: AccessClaims): Promise<SafeUser> {

@@ -17,6 +17,7 @@ import { channelRoutes } from "./modules/integrations/channels.routes.js";
 import { integrationRoutes } from "./modules/integrations/routes.js";
 import { zernioWebhookRoutes } from "./modules/integrations/zernioWebhook.routes.js";
 import { propertyRoutes } from "./modules/properties/routes.js";
+import { publicSiteRoutes } from "./modules/public-site/routes.js";
 import { tenantRoutes } from "./modules/tenants/routes.js";
 import { userRoutes } from "./modules/users/routes.js";
 import { webhookRoutes } from "./modules/webhooks/routes.js";
@@ -55,6 +56,7 @@ export function buildApp() {
   v1.use(tenantRoutes);
   v1.use(userRoutes);
   v1.use(propertyRoutes);
+  v1.use(publicSiteRoutes);
   v1.use(imageRoutes);
   v1.use(crmRoutes);
   v1.use(feedbackRoutes);

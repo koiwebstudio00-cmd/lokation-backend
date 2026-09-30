@@ -26,16 +26,22 @@ export async function createTenant(
   return runWithContext(ctxOf(auth), async (tx) => {
     const slugTaken = await tx.tenant.findUnique({ where: { slug: data.slug } });
     if (slugTaken) throw new ApiError("CONFLICT", "Ese slug ya está en uso.");
+    const userTaken = await tx.user.findUnique({ where: { email: data.adminEmail } });
+    if (userTaken) throw new ApiError("CONFLICT", "Ese email ya tiene una cuenta en Ubikka.");
+    const pendingInvitation = await tx.invitation.findFirst({ where: {
+      email: data.adminEmail, acceptedAt: null, expiresAt: { gt: new Date() }
+    } });
+    if (pendingInvitation) throw new ApiError("CONFLICT", "Ese email ya tiene una invitación pendiente.");
 
     const tenant = await tx.tenant.create({
       data: { nombre: data.nombre, slug: data.slug }
     });
-    await createInvitation(
+    const invitation = await createInvitation(
       tx,
       { tenantId: tenant.id, invitedBy: auth.userId, email: data.adminEmail, rol: "admin" },
       tenant.nombre
     );
-    return tenant;
+    return { tenant, devInvitationUrl: invitation.devInvitationUrl };
   });
 }
 
@@ -47,11 +53,30 @@ export async function currentTenant(auth: AccessClaims) {
   });
 }
 
+export async function resendTenantInvitation(auth: AccessClaims, tenantId: string) {
+  return runWithContext(ctxOf(auth), async (tx) => {
+    const tenant = await tx.tenant.findUnique({ where: { id: tenantId },
+      include: { _count: { select: { users: true } } } });
+    if (!tenant) throw new ApiError("NOT_FOUND", "La inmobiliaria no existe.");
+    if (tenant.estado !== "activo" || tenant._count.users > 0) {
+      throw new ApiError("CONFLICT", "La inmobiliaria ya tiene usuarios o está suspendida.");
+    }
+    const pending = await tx.invitation.findFirst({ where: { tenantId, acceptedAt: null },
+      orderBy: { createdAt: "desc" } });
+    if (!pending) throw new ApiError("NOT_FOUND", "No hay una invitación pendiente.");
+    const invitation = await createInvitation(tx, { tenantId, invitedBy: auth.userId,
+      email: pending.email, rol: "admin" }, tenant.nombre);
+    return { email: invitation.email, devInvitationUrl: invitation.devInvitationUrl };
+  });
+}
+
 export async function updateCurrentTenant(
   auth: AccessClaims,
   data: {
     logoUrl?: string | null;
-    configSitio?: unknown;
+    nombre?: string;
+    configSitio?: { descripcion: string; telefono?: string; email?: string; direccion?: string; ciudad?: string; imagen_portada_url?: string };
+    sitePublished?: boolean;
     agentConfig?: { model: string; instructions: string };
     agentEnabled?: boolean;
     followupEnabled?: boolean;
@@ -64,13 +89,30 @@ export async function updateCurrentTenant(
     throw new ApiError("CONFLICT", "El agente estará disponible cuando finalice su migración a código.");
   }
   return runWithContext(ctxOf(auth), async (tx) => {
+    const current = await tx.tenant.findUniqueOrThrow({ where: { id: auth.tenantId! },
+      select: { configSitio: true, estado: true } });
+    const previousConfig = current.configSitio && typeof current.configSitio === "object" &&
+      !Array.isArray(current.configSitio) ? current.configSitio as Record<string, unknown> : {};
+    const siteConfig = data.configSitio !== undefined
+      ? { ...previousConfig, ...data.configSitio }
+      : undefined;
+    if (data.sitePublished === true) {
+      const site = siteConfig ?? current.configSitio;
+      if (current.estado !== "activo" || !site || typeof site !== "object" ||
+          typeof (site as { descripcion?: unknown }).descripcion !== "string" ||
+          (site as { descripcion: string }).descripcion.trim().length < 30) {
+        throw new ApiError("CONFLICT", "Completá la descripción del sitio antes de publicarlo.");
+      }
+    }
     const tenant = await tx.tenant.update({
       where: { id: auth.tenantId! },
       data: {
         ...(data.logoUrl !== undefined ? { logoUrl: data.logoUrl } : {}),
-        ...(data.configSitio !== undefined
-          ? { configSitio: data.configSitio as object }
+        ...(data.nombre !== undefined ? { nombre: data.nombre } : {}),
+        ...(siteConfig !== undefined
+          ? { configSitio: siteConfig }
           : {}),
+        ...(data.sitePublished !== undefined ? { sitePublished: data.sitePublished } : {}),
         ...(data.agentConfig !== undefined
           ? { agentConfig: data.agentConfig }
           : {}),

@@ -21,12 +21,13 @@ tenantRoutes.post("/tenants", requireRole("super_admin"), async (req, res) => {
       admin_email: z.string().email()
     })
     .parse(req.body);
-  const tenant = await tenants.createTenant(req.auth!, {
+  const result = await tenants.createTenant(req.auth!, {
     nombre: body.nombre,
     slug: body.slug,
     adminEmail: body.admin_email
   });
-  res.status(201).json({ tenant });
+  res.status(201).json({ tenant: result.tenant, ...(result.devInvitationUrl
+    ? { dev_invitation_url: result.devInvitationUrl } : {}) });
 });
 
 tenantRoutes.get(
@@ -41,7 +42,16 @@ tenantRoutes.patch("/tenants/current", requireRole("admin"), async (req, res) =>
   const body = z
     .object({
       logo_url: z.string().url().nullable().optional(),
-      config_sitio: z.record(z.unknown()).optional(),
+      nombre: z.string().trim().min(2).max(120).optional(),
+      config_sitio: z.object({
+        descripcion: z.string().trim().min(30).max(500),
+        telefono: z.string().trim().max(40).optional(),
+        email: z.string().email().max(254).optional(),
+        direccion: z.string().trim().max(200).optional(),
+        ciudad: z.string().trim().max(100).optional(),
+        imagen_portada_url: z.string().url().optional()
+      }).strict().optional(),
+      site_published: z.boolean().optional(),
       agent_config: z.object({
         model: z.string().trim().regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,119}$/, "Identificador de modelo OpenAI inválido."),
         instructions: z.string().trim().min(20).max(6000)
@@ -54,7 +64,9 @@ tenantRoutes.patch("/tenants/current", requireRole("admin"), async (req, res) =>
     .parse(req.body);
   const tenant = await tenants.updateCurrentTenant(req.auth!, {
     logoUrl: body.logo_url,
+    nombre: body.nombre,
     configSitio: body.config_sitio,
+    sitePublished: body.site_published,
     agentConfig: body.agent_config,
     agentEnabled: body.agente_activo,
     followupEnabled: body.seguimiento_activo,
@@ -62,6 +74,13 @@ tenantRoutes.patch("/tenants/current", requireRole("admin"), async (req, res) =>
     followupSecondMessage: body.seguimiento_mensaje_2
   });
   res.json({ tenant });
+});
+
+tenantRoutes.post("/tenants/:id/resend-invitation", requireRole("super_admin"), async (req, res) => {
+  const id = z.string().uuid().parse(req.params.id);
+  const result = await tenants.resendTenantInvitation(req.auth!, id);
+  res.json({ email: result.email, ...(result.devInvitationUrl
+    ? { dev_invitation_url: result.devInvitationUrl } : {}) });
 });
 
 tenantRoutes.patch("/tenants/:id", requireRole("super_admin"), async (req, res) => {

@@ -25,20 +25,22 @@ function transporter(): Transporter | null {
 
 /**
  * Envío por SMTP (nodemailer) si hay SMTP_HOST; si no (dev), omite el envío.
- * Los emails nunca frenan el flujo: errores se loggean y se sigue.
+ * Devuelve si SMTP entregó el mensaje; el flujo de invitaciones exige éxito.
  */
-export async function sendMail(mail: Mail): Promise<void> {
+export async function sendMail(mail: Mail): Promise<boolean> {
   const t = transporter();
   if (!t) {
     // El cuerpo puede contener tokens de acceso, contraseñas y datos de leads.
     console.info("[mail-dev] envío omitido: configurar SMTP_HOST para probar correos.");
-    return;
+    return false;
   }
   try {
     await t.sendMail({ from: config.EMAIL_FROM, ...mail });
+    return true;
   } catch {
     // Los errores SMTP pueden incluir direcciones y fragmentos del mensaje.
     console.error("[mail] fallo de envío SMTP");
+    return false;
   }
 }
 
