@@ -19,6 +19,7 @@
     "db:migrate:deploy": "tsx scripts/migrate-dev.ts",
     "db:generate": "prisma generate",
     "test:prepare": "tsx scripts/migrate-test.ts",
+    "pilot:openai": "node --import tsx scripts/pilot-openai.mjs",
     "seed": "tsx prisma/seed.ts",
     "migrate:supabase": "tsx scripts/migrate-supabase.ts",
     "admin": "tsx scripts/admin-cli.ts",
