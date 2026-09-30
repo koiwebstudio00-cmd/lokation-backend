@@ -151,6 +151,15 @@ agentRoutes.get(
 );
 
 agentRoutes.get(
+  "/agent/config",
+  requireApiKey("agent:read"),
+  agentLimiter,
+  async (req, res) => {
+    res.json(await agent.configuracionDelAgente(tenantOf(req)));
+  }
+);
+
+agentRoutes.get(
   "/agent/conversations/:id/context",
   requireApiKey("agent:read"),
   agentLimiter,

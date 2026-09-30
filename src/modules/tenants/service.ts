@@ -52,6 +52,7 @@ export async function updateCurrentTenant(
   data: {
     logoUrl?: string | null;
     configSitio?: unknown;
+    agentConfig?: { model: string; instructions: string };
     agentEnabled?: boolean;
     followupEnabled?: boolean;
     followupFirstMessage?: string;
@@ -68,6 +69,9 @@ export async function updateCurrentTenant(
         ...(data.logoUrl !== undefined ? { logoUrl: data.logoUrl } : {}),
         ...(data.configSitio !== undefined
           ? { configSitio: data.configSitio as object }
+          : {}),
+        ...(data.agentConfig !== undefined
+          ? { agentConfig: data.agentConfig }
           : {}),
         ...(data.agentEnabled !== undefined
           ? { agentEnabled: data.agentEnabled }

@@ -42,6 +42,10 @@ tenantRoutes.patch("/tenants/current", requireRole("admin"), async (req, res) =>
     .object({
       logo_url: z.string().url().nullable().optional(),
       config_sitio: z.record(z.unknown()).optional(),
+      agent_config: z.object({
+        model: z.string().trim().regex(/^[a-z0-9][a-z0-9._-]*\/[a-zA-Z0-9._-]+$/).max(120),
+        instructions: z.string().trim().min(20).max(6000)
+      }).strict().optional(),
       agente_activo: z.boolean().optional(),
       seguimiento_activo: z.boolean().optional(),
       seguimiento_mensaje_1: z.string().trim().min(1).max(1000).optional(),
@@ -51,6 +55,7 @@ tenantRoutes.patch("/tenants/current", requireRole("admin"), async (req, res) =>
   const tenant = await tenants.updateCurrentTenant(req.auth!, {
     logoUrl: body.logo_url,
     configSitio: body.config_sitio,
+    agentConfig: body.agent_config,
     agentEnabled: body.agente_activo,
     followupEnabled: body.seguimiento_activo,
     followupFirstMessage: body.seguimiento_mensaje_1,

@@ -19,6 +19,17 @@ import { TIPOS } from "../../lib/property-opciones.js";
 import * as followups from "./followup.repo.js";
 
 const agentCtx = (tenantId: string) => ({ rol: "agent" as const, tenantId });
+
+export async function configuracionDelAgente(tenantId: string) {
+  return runWithContext(agentCtx(tenantId), async (tx) => {
+    const tenant = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { estado: true, agentEnabled: true, agentConfig: true }
+    });
+    if (!tenant || tenant.estado !== "activo") throw new ApiError("NOT_FOUND", "El recurso no existe.");
+    return { enabled: tenant.agentEnabled, config: tenant.agentConfig };
+  });
+}
 const FOLLOWUP_DELAY_MS = 2 * 60 * 60 * 1000;
 const FOLLOWUP_RETRY_MS = 5 * 60 * 1000;
 const sessionCtx = (a: AccessClaims) => ({

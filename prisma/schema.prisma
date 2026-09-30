@@ -264,6 +264,7 @@ model Tenant {
   slug                  String       @unique
   logoUrl               String?      @map("logo_url")
   configSitio           Json?        @map("config_sitio")
+  agentConfig           Json?        @map("agent_config")
   estado                TenantEstado @default(activo)
   authVersion           Int          @default(0) @map("auth_version")
   agentEnabled          Boolean      @default(false) @map("agente_activo")
