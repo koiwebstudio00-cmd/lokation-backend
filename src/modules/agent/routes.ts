@@ -301,10 +301,26 @@ agentRoutes.post(
     const b = z
       .object({
         motivo: z.enum(["visita", "reserva", "tasacion", "pedido_humano", "fuera_de_alcance"]),
+        operation_key: z.string().regex(/^handoff:[0-9a-f]{64}$/).optional(),
         resumen: resumenSchema.optional()
       })
       .parse(req.body);
-    res.json(await agent.derivar(tenantOf(req), id, b));
+    res.json(await agent.derivar(tenantOf(req), id, {
+      motivo: b.motivo, resumen: b.resumen, operationKey: b.operation_key
+    }));
+  }
+);
+
+agentRoutes.get(
+  "/agent/conversations/:id/handoff",
+  requireApiKey("agent:read"),
+  agentLimiter,
+  async (req, res) => {
+    const id = idParam().parse(req.params.id);
+    const { operation_key } = z.object({
+      operation_key: z.string().regex(/^handoff:[0-9a-f]{64}$/)
+    }).strict().parse(req.query);
+    res.json(await agent.consultarDerivacionDelTurno(tenantOf(req), id, operation_key));
   }
 );
 

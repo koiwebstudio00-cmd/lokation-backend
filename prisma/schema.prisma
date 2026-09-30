@@ -676,6 +676,7 @@ model Handoff {
   conversationId String           @map("conversation_id") @db.Uuid
   vendedorId     String           @map("vendedor_id") @db.Uuid
   motivo         String
+  operationKey   String?          @map("operation_key")
   resultado      HandoffResultado @default(pendiente)
   asignadoAt     DateTime         @default(now()) @map("asignado_at") @db.Timestamptz(6)
   tomadoAt       DateTime?        @map("tomado_at") @db.Timestamptz(6)
@@ -686,6 +687,7 @@ model Handoff {
   vendedor     User         @relation(fields: [vendedorId], references: [id])
 
   @@index([conversationId, asignadoAt(sort: Desc)])
+  @@unique([tenantId, operationKey])
   @@map("handoffs")
 }
 

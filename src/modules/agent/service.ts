@@ -502,12 +502,32 @@ export async function guardarResumen(
 export async function derivar(
   tenantId: string,
   conversationId: string,
-  input: { motivo: string; resumen?: Resumen }
+  input: { motivo: string; resumen?: Resumen; operationKey?: string }
 ) {
   const { response, mail } = await runWithContext(agentCtx(tenantId), async (tx) => {
+    // Serializa dos ejecuciones del mismo turno antes de elegir vendedor.
+    if (!(await followups.lock(tx, conversationId))) {
+      throw new ApiError("NOT_FOUND", "El recurso no existe.");
+    }
     const conv = await requireConversacion(tx, conversationId);
-    if (conv.estado === "cerrada") {
-      throw new ApiError("CONFLICT", "La conversación ya está cerrada.");
+    if (input.operationKey) {
+      const previous = await repo.findHandoffByOperationKey(tx, tenantId, input.operationKey);
+      if (previous) {
+        if (previous.conversationId !== conversationId || previous.motivo !== input.motivo) {
+          throw new ApiError("CONFLICT", "La clave de derivación ya se usó con otros datos.");
+        }
+        const vendedor = await repo.findVendedor(tx, previous.vendedorId);
+        const lead = await repo.findLead(tx, conv.leadId);
+        return { response: {
+          handoff: { id: previous.id, resultado: previous.resultado, asignado_at: previous.asignadoAt },
+          vendedor,
+          conversation: conversacionPayload(conv),
+          lead: { id: conv.leadId, estado: lead!.estado, assigned_to: lead!.assignedTo }
+        }, mail: null };
+      }
+    }
+    if (conv.estado !== "bot" || !conv.tenant.agentEnabled) {
+      throw new ApiError("CONFLICT", "El agente ya no controla esta conversación.");
     }
 
     await repo.sincronizarVendedores(tx, tenantId);
@@ -525,7 +545,8 @@ export async function derivar(
       leadId: conv.leadId,
       vendedorId,
       motivo: input.motivo,
-      resumen: input.resumen
+      resumen: input.resumen,
+      operationKey: input.operationKey
     });
 
     return {
@@ -546,6 +567,25 @@ export async function derivar(
   return response;
 }
 
+export async function consultarDerivacionDelTurno(
+  tenantId: string,
+  conversationId: string,
+  operationKey: string
+) {
+  return runWithContext(agentCtx(tenantId), async (tx) => {
+    const conv = await requireConversacion(tx, conversationId);
+    const handoff = await repo.findHandoffByOperationKey(tx, tenantId, operationKey);
+    if (!handoff || handoff.conversationId !== conversationId) {
+      throw new ApiError("NOT_FOUND", "El recurso no existe.");
+    }
+    return {
+      handoff: { id: handoff.id, motivo: handoff.motivo,
+        resultado: handoff.resultado, asignado_at: handoff.asignadoAt },
+      conversation: conversacionPayload(conv)
+    };
+  });
+}
+
 /**
  * El corazón del handoff, compartido entre la derivación y la reasignación por
  * timeout. Todo pasa en la transacción del caller: elegir, asignar, dejar el
@@ -560,6 +600,7 @@ async function asignar(
     leadId: string;
     vendedorId: string;
     motivo: string;
+    operationKey?: string;
     resumen?: Resumen;
     reassignable?: boolean;
     clasificacion?: "potencial" | "fantasma";
@@ -589,6 +630,7 @@ async function asignar(
     conversationId: p.conversationId,
     vendedorId: p.vendedorId,
     motivo: p.motivo,
+    operationKey: p.operationKey,
     reassignable: p.reassignable ?? true
   });
 

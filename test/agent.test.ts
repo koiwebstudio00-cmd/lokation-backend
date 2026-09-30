@@ -455,6 +455,48 @@ describe.runIf(DB_AVAILABLE)("Agente de IA", () => {
     expect(delAgente!.nota).toContain("Temperatura: caliente");
   });
 
+  it("reintentar un handoff del mismo turno devuelve el mismo pase sin duplicar asignación", async () => {
+    const opened = await request(app).post("/v1/agent/conversations")
+      .set("x-api-key", keyAgente)
+      .send({ canal: "whatsapp", canal_ref: "+5493817700123" });
+    expect(opened.status).toBe(201);
+    const id = opened.body.conversation.id as string;
+    const operationKey = `handoff:${"a".repeat(64)}`;
+    const path = `/v1/agent/conversations/${id}/handoff`;
+    const body = { motivo: "pedido_humano", operation_key: operationKey };
+    const first = await request(app).post(path).set("x-api-key", keyAgente).send(body);
+    const replay = await request(app).post(path).set("x-api-key", keyAgente).send(body);
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(replay.body.handoff.id).toBe(first.body.handoff.id);
+    expect(await adminDb().handoff.count({ where: { conversationId: id } })).toBe(1);
+    const status = await request(app).get(`${path}?operation_key=${operationKey}`)
+      .set("x-api-key", keyAgente);
+    expect(status.status).toBe(200);
+    expect(status.body.handoff.id).toBe(first.body.handoff.id);
+    const foreignStatus = await request(app).get(`${path}?operation_key=${operationKey}`)
+      .set("x-api-key", keyB);
+    expect(foreignStatus.status).toBe(404);
+
+    const different = await request(app).post(path).set("x-api-key", keyAgente)
+      .send({ motivo: "visita", operation_key: operationKey });
+    expect(different.status).toBe(409);
+    const newKey = await request(app).post(path).set("x-api-key", keyAgente)
+      .send({ motivo: "pedido_humano", operation_key: `handoff:${"b".repeat(64)}` });
+    expect(newKey.status).toBe(409);
+    expect(await adminDb().handoff.count({ where: { conversationId: id } })).toBe(1);
+
+    const openedB = await request(app).post("/v1/agent/conversations")
+      .set("x-api-key", keyB)
+      .send({ canal: "whatsapp", canal_ref: "+5493817700456" });
+    expect(openedB.status).toBe(201);
+    const ownB = await request(app)
+      .post(`/v1/agent/conversations/${openedB.body.conversation.id}/handoff`)
+      .set("x-api-key", keyB).send(body);
+    expect(ownB.status).toBe(200);
+    expect(ownB.body.handoff.id).not.toBe(first.body.handoff.id);
+  });
+
   it("con el bot mudo, la conversación sigue registrando pero avisa bot_activo=false", async () => {
     const res = await request(app)
       .post("/v1/agent/conversations")

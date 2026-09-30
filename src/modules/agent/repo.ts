@@ -426,6 +426,14 @@ export function insertHandoff(tx: Tx, data: Prisma.HandoffUncheckedCreateInput) 
   });
 }
 
+export function findHandoffByOperationKey(tx: Tx, tenantId: string, operationKey: string) {
+  return tx.handoff.findUnique({
+    where: { tenantId_operationKey: { tenantId, operationKey } },
+    select: { id: true, conversationId: true, motivo: true, resultado: true,
+      asignadoAt: true, vendedorId: true }
+  });
+}
+
 export function vendedoresPrevios(tx: Tx, conversationId: string) {
   return tx.handoff.findMany({
     where: { conversationId },
