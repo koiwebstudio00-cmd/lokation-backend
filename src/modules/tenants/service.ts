@@ -59,7 +59,8 @@ export async function updateCurrentTenant(
     followupSecondMessage?: string;
   }
 ) {
-  if (config.NODE_ENV === "production" && data.agentEnabled === true) {
+  if (config.NODE_ENV === "production" && data.agentEnabled === true &&
+      !config.AGENT_CODE_TENANT_IDS.split(",").map((id) => id.trim()).includes(auth.tenantId ?? "")) {
     throw new ApiError("CONFLICT", "El agente estará disponible cuando finalice su migración a código.");
   }
   return runWithContext(ctxOf(auth), async (tx) => {

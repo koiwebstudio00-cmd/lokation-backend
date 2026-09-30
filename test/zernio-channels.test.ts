@@ -13,6 +13,7 @@ import { createServer, type Server } from "node:http";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
+import { config } from "../src/config.js";
 import { runWithContext } from "../src/lib/prisma.js";
 import { processChannelEventsOnce } from "../src/modules/integrations/zernioWebhook.worker.js";
 import {
@@ -466,6 +467,29 @@ describe.runIf(DB_AVAILABLE)("Zernio: webhook entrante — firma, idempotencia y
       where: { tenantId: A.tenant.id, canal: "whatsapp", canalRef: "+5493810000099" }
     });
     expect(lead).toBeNull();
+  });
+
+  it("dirige sólo un tenant habilitado al servicio nuevo con token firmado", async () => {
+    while ((await processChannelEventsOnce(yaSeEnfrio())) > 0) { /* flush */ }
+    n8nRequests.length = 0;
+    const calls: Array<{ url: string; token: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", async (url: URL, options: RequestInit) => {
+      calls.push({ url: String(url), token: String((options.headers as Record<string, string>)["X-Agent-Service-Token"]),
+        body: JSON.parse(String(options.body)) });
+      return { ok: true, status: 200 };
+    });
+    try {
+      const evento = eventoWhatsapp(ACCOUNT_ID, { conversationId: "conv_code_route" });
+      const body = JSON.stringify(evento);
+      await request(app).post("/webhooks/zernio").set("Content-Type", "application/json")
+        .set("x-zernio-signature", firmar(body)).send(body);
+      expect(await processChannelEventsOnce({ ...yaSeEnfrio(), codeTenantIds: new Set([A.tenant.id]) })).toBe(1);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.url).toBe(`${config.AGENT_SERVICE_URL}/turn`);
+      expect(calls[0]?.body.tenant_id).toBe(A.tenant.id);
+      expect(calls[0]?.token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+      expect(n8nRequests).toHaveLength(0);
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it("registra message.sent de WhatsApp Business sin despertar al agente", async () => {

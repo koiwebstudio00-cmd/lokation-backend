@@ -55,6 +55,11 @@ const envSchema = z.object({
   // Fallback del link público que el agente le manda al lead, cuando el tenant
   // no tiene `config_sitio.url_publica` cargado.
   SITIO_PUBLICO_URL: z.string().default(""),
+  // Servicio en código. El allowlist activa tenants uno por uno; el secreto
+  // firma credenciales breves usadas sólo por endpoints agent:*.
+  AGENT_SERVICE_URL: z.string().url().optional(),
+  AGENT_SERVICE_SECRET: z.string().optional(),
+  AGENT_CODE_TENANT_IDS: z.string().default(""),
   // ── Zernio (canales de mensajería) ──────────────────────────────────────────
   // Una sola key para el team de Zernio de Ubikka; nunca se expone al panel.
   ZERNIO_API_KEY: z.string().optional(),
@@ -65,11 +70,8 @@ const envSchema = z.object({
   // Base para armar el redirect_url del connect flow (URL del panel en cada
   // ambiente). Sin barra final.
   ZERNIO_REDIRECT_BASE_URL: z.string().default("http://localhost:3000"),
-  // Webhook de n8n que retoma el flujo del agente (bot_activo? → contexto →
-  // Sofi → ...) después de que este worker registra el mensaje entrante.
-  // n8n sigue siendo el cerebro (E1) — acá solo cambia quién dispara el
-  // trigger: antes Kapso, ahora este worker. Sin configurar, los eventos de
-  // WhatsApp quedan registrados en la BD pero nadie le contesta al lead.
+  // Webhook histórico de n8n para tenants fuera del piloto en código.
+  // Producción Ubikka no permite configurarlo.
   N8N_WHATSAPP_WEBHOOK_URL: z.string().optional(),
   // Ventana de agrupado de ráfagas del worker de Zernio. Zernio manda un
   // webhook por mensaje; se espera este silencio antes de despachar la
@@ -80,6 +82,15 @@ const envSchema = z.object({
 });
 
 export const config = envSchema.parse(process.env);
+
+if (config.AGENT_CODE_TENANT_IDS.trim()) {
+  if (!config.AGENT_SERVICE_URL || !config.AGENT_SERVICE_SECRET || config.AGENT_SERVICE_SECRET.length < 32) {
+    throw new Error("AGENT_SERVICE_URL y AGENT_SERVICE_SECRET (mínimo 32 caracteres) son obligatorios al activar tenants en código.");
+  }
+  if (config.NODE_ENV === "production" && !config.AGENT_SERVICE_URL.startsWith("https://")) {
+    throw new Error("AGENT_SERVICE_URL debe usar HTTPS en producción.");
+  }
+}
 
 if (config.NODE_ENV === "production") {
   if (!config.JWT_SECRET) {

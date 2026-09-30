@@ -2,8 +2,8 @@
 // lead, resuelve accountId → tenant y despierta al agente de IA. Ver
 // lamelas-agent/docs/plan-implementacion-zernio.md §5.3.
 //
-// Decisión (2026-08-17, revisada 2026-08-28): los message.received siguen siendo
-// puro transporte; n8n registra la entrada para no duplicarla. El worker sí
+// Los message.received siguen siendo puro transporte: el motor elegido para
+// ese tenant registra la entrada para no duplicarla. El worker sí
 // procesa message.sent desde whatsapp_business_app porque esa intervención no
 // entra al workflow: registra al vendedor y silencia el bot en una transacción.
 //
@@ -19,6 +19,7 @@
 // Solo WhatsApp por ahora (regla 10 — Instagram queda para más adelante).
 import { createHash, randomUUID } from "node:crypto";
 import { config } from "../../config.js";
+import { signAgentServiceToken } from "../../lib/agent-service-token.js";
 import { emitEvent } from "../../lib/events.js";
 import { runWithContext } from "../../lib/prisma.js";
 import * as channels from "./channels.repo.js";
@@ -63,23 +64,27 @@ interface PendingEvent {
 class PermanentError extends Error {}
 
 /**
- * Reenvía a n8n la ráfaga completa de una conversación, en el mismo formato
- * `data: [...]` que mandaba Kapso — así el nodo `normalizar` sigue leyendo una
- * lista y no hay que sostener dos shapes distintos del lado de n8n.
+ * Reenvía la ráfaga completa de una conversación. Conserva `data: [...]`
+ * para el contrato histórico y el nuevo servicio.
  * Tira si la llamada falla: el caller lo trata como transitorio y reintenta.
  */
 async function despertarAgente(
   cuenta: { id: string; tenantId: string; canal: string; zernioAccountId: string },
   providerConversationId: string,
   turnId: string,
-  payloads: unknown[]
+  payloads: unknown[],
+  useCode: boolean
 ) {
-  if (!config.N8N_WHATSAPP_WEBHOOK_URL) {
-    throw new PermanentError("N8N_WHATSAPP_WEBHOOK_URL no configurado");
+  const target = useCode ? config.AGENT_SERVICE_URL : config.N8N_WHATSAPP_WEBHOOK_URL;
+  if (!target) throw new PermanentError(useCode
+    ? "AGENT_SERVICE_URL no configurado" : "N8N_WHATSAPP_WEBHOOK_URL no configurado");
+  if (useCode && !config.AGENT_SERVICE_SECRET) {
+    throw new PermanentError("AGENT_SERVICE_SECRET no configurado");
   }
-  const res = await fetch(config.N8N_WHATSAPP_WEBHOOK_URL, {
+  const res = await fetch(useCode ? new URL("/turn", target) : target, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(useCode
+      ? { "X-Agent-Service-Token": signAgentServiceToken(cuenta.tenantId) } : {}) },
     body: JSON.stringify({
       tenant_id: cuenta.tenantId,
       canal: cuenta.canal,
@@ -89,10 +94,11 @@ async function despertarAgente(
       turn_id: turnId,
       data: payloads
     }),
-    signal: AbortSignal.timeout(10_000)
+    signal: AbortSignal.timeout(useCode ? 45_000 : 10_000)
   });
   if (!res.ok) {
-    throw new Error(`n8n respondió ${res.status} al trigger de WhatsApp`);
+    if (useCode && res.status === 422) throw new PermanentError("Turno no soportado por agent-ia (422)");
+    throw new Error(`${useCode ? "agent-ia" : "n8n"} respondió ${res.status} al trigger de WhatsApp`);
   }
 }
 
@@ -223,9 +229,9 @@ async function registrarIntervencionHumana(
  * Nunca tira para casos de negocio esperados (cuenta desconocida): esos son
  * `permanente: true`, no tiene sentido reintentarlos. Si `despertarAgente` tira
  * por un `PermanentError`, tampoco — cualquier otro throw se trata como
- * transitorio (n8n caído momentáneamente, timeout de red).
+ * transitorio (servicio caído momentáneamente, timeout de red).
  */
-async function procesarGrupo(grupo: PendingEvent[]): Promise<ResultadoEvento> {
+async function procesarGrupo(grupo: PendingEvent[], codeTenantIds: ReadonlySet<string>): Promise<ResultadoEvento> {
   const primero = grupo[0]!;
   const accountId = accountIdDe(payloadDe(primero));
   if (!accountId) return { ok: false, permanente: true, error: "evento sin account.id" };
@@ -256,7 +262,8 @@ async function procesarGrupo(grupo: PendingEvent[]): Promise<ResultadoEvento> {
       const turnId = createHash("sha256")
         .update(`${cuenta.id}:${providerConversationId}:${primero.zernioEventId}`)
         .digest("hex");
-      await despertarAgente(cuenta, providerConversationId, turnId, grupo.map((e) => e.payload));
+      await despertarAgente(cuenta, providerConversationId, turnId, grupo.map((e) => e.payload),
+        codeTenantIds.has(cuenta.tenantId));
     } catch (err) {
       if (err instanceof PermanentError) {
         return { ok: false, permanente: true, error: err.message };
@@ -329,6 +336,8 @@ export interface ProcessOptions {
   /** Inyectable para los tests: evita depender del reloj real para el buffer. */
   ahora?: Date;
   bufferMs?: number;
+  /** Permite probar el corte por tenant sin cambiar la configuración global. */
+  codeTenantIds?: ReadonlySet<string>;
 }
 
 /**
@@ -339,6 +348,7 @@ export interface ProcessOptions {
 export async function processChannelEventsOnce(opts: ProcessOptions = {}): Promise<number> {
   const ahora = opts.ahora ?? new Date();
   const bufferMs = opts.bufferMs ?? config.ZERNIO_BUFFER_MS;
+  const codeTenantIds = opts.codeTenantIds ?? new Set(config.AGENT_CODE_TENANT_IDS.split(",").map((id) => id.trim()).filter(Boolean));
 
   const pendientes: PendingEvent[] = await runWithContext(WORKER_CTX, (tx) =>
     tx.channelWebhookEvent.findMany({
@@ -382,7 +392,7 @@ export async function processChannelEventsOnce(opts: ProcessOptions = {}): Promi
 
     let resultado: ResultadoEvento;
     try {
-      resultado = await procesarGrupo(grupo);
+      resultado = await procesarGrupo(grupo, codeTenantIds);
     } catch (err) {
       resultado = { ok: false, permanente: false, error: (err as Error).message };
     }

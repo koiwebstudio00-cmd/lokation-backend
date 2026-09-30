@@ -1,5 +1,6 @@
 // Piloto explícito: dos tenants ficticios en la BD local de test, API real y
 // OpenAI real. runTurn(live:false) impide despachos y handoffs a WhatsApp.
+/* global fetch */
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import console from "node:console";
 import { once } from "node:events";
@@ -18,17 +19,20 @@ if (!url || !["localhost", "127.0.0.1"].includes(url.hostname) || !url.pathname.
 }
 if (!process.env.OPENAI_API_KEY) throw new Error("Falta OPENAI_API_KEY en agent-ia/.env.");
 process.env.NODE_ENV = "test";
+process.env.AGENT_SERVICE_SECRET = randomBytes(32).toString("hex");
 url.username = "app_rt";
 url.password = "app_rt_dev";
 process.env.DATABASE_URL = url.toString();
 
-const [{ buildApp }, { getPrisma }, { createBackendClient, runTurn }] = await Promise.all([
-  import("../src/app.ts"), import("../src/lib/prisma.ts"), import("../../agent-ia/src/turn.mjs")
+const [{ buildApp }, { getPrisma }, { signAgentServiceToken }, { createBackendClient }, { createAgentService }] = await Promise.all([
+  import("../src/app.ts"), import("../src/lib/prisma.ts"), import("../src/lib/agent-service-token.ts"),
+  import("../../agent-ia/src/turn.mjs"), import("../../agent-ia/src/service.mjs")
 ]);
 
 const db = new PrismaClient({ datasources: { db: { url: testUrl } } });
 const ids = [];
 let server;
+let agentServer;
 
 async function fixture(label, marker) {
   const slug = `pilot-${label}-${marker}`;
@@ -84,6 +88,10 @@ try {
   server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
+  agentServer = createAgentService({ secret: process.env.AGENT_SERVICE_SECRET, backendApiUrl: base });
+  agentServer.listen(0, "127.0.0.1");
+  await once(agentServer, "listening");
+  const agentBase = `http://127.0.0.1:${agentServer.address().port}`;
   const marker = randomBytes(5).toString("hex");
   const A = await fixture("a", marker);
   const B = await fixture("b", marker);
@@ -104,7 +112,12 @@ try {
         text: "Hola, busco una casa en venta en San Miguel de Tucumán. ¿Qué opciones tienen?"
       } }]
     };
-    const result = await runTurn({ envelope, expectedTenantId: own.tenant.id, backend, live: false });
+    const response = await fetch(`${agentBase}/preview`, { method: "POST",
+      headers: { "Content-Type": "application/json",
+        "X-Agent-Service-Token": signAgentServiceToken(own.tenant.id) },
+      body: JSON.stringify(envelope) });
+    assert(response.ok, `Servicio del agente respondió ${response.status} para ${label}`);
+    const result = await response.json();
     assert(result.status === "preview" && result.replies.length > 0, `OpenAI no produjo vista previa para ${label}`);
     assert(!result.replies.join(" ").includes(other.property.titulo), `Respuesta de ${label} menciona propiedad ajena`);
     const messages = await db.conversationMessage.findMany({ where: { tenantId: own.tenant.id } });
@@ -122,6 +135,7 @@ try {
   finally {
     await db.$disconnect();
     await getPrisma().$disconnect();
+    if (agentServer) await new Promise((resolve) => agentServer.close(resolve));
     if (server) await new Promise((resolve) => server.close(resolve));
   }
 }

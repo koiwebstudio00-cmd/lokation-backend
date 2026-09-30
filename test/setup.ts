@@ -18,3 +18,5 @@ process.env.ZERNIO_API_KEY = "test-zernio-api-key";
 // el receiver de test/webhooks.test.ts. zernio-channels.test.ts levanta un
 // servidor local escuchando exactamente acá.
 process.env.N8N_WHATSAPP_WEBHOOK_URL = "http://127.0.0.1:34599/n8n-hook";
+process.env.AGENT_SERVICE_URL = "http://127.0.0.1:34600";
+process.env.AGENT_SERVICE_SECRET = "test-agent-service-secret-32-characters-long";
