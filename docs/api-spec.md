@@ -1,6 +1,8 @@
-# Especificación de API — Plataforma Inmobiliaria
+# Especificación de API — Ubikka
 
-**Base URL productiva:** `https://api.inmobiliarialyc.com.ar/v1` · **Formato:** JSON
+> Documento heredado en actualización. Para las adiciones del dashboard de 2026-10-01 y su validación, ver [README](../README.md#dashboard-contratos-nuevos--2026-10-01). Las rutas del código y sus pruebas son la referencia ejecutable; los dominios y políticas del prototipo no definen el despliegue de Ubikka.
+
+**Base URL local de Ubikka:** `http://localhost:3001/v1` · **Formato:** JSON
 **Auth interna:** cookies httpOnly (access + refresh) + header CSRF en mutations · **Auth de integraciones:** `X-Api-Key` con scopes
 **Referencia:** `permisos-rls.md` (matriz de permisos), `diagrama-er.md` (entidades). Este Markdown es el contrato documentado actual; el proyecto no expone hoy una spec OpenAPI generada ni una ruta `/docs`.
 
