@@ -7,6 +7,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error.js";
 import { requestLogger } from "./middleware/logging.js";
 import { agentRoutes, conversationRoutes } from "./modules/agent/routes.js";
 import { analyticsRoutes } from "./modules/analytics/routes.js";
+import { platformRoutes } from "./modules/platform/routes.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { crmRoutes } from "./modules/crm/routes.js";
 import { feedbackRoutes } from "./modules/feedback/routes.js";
@@ -53,6 +54,7 @@ export function buildApp() {
   const v1 = express.Router();
   v1.use(healthRoutes);
   v1.use(authRoutes);
+  v1.use(platformRoutes);
   v1.use(tenantRoutes);
   v1.use(userRoutes);
   v1.use(propertyRoutes);

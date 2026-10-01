@@ -2,6 +2,7 @@ import { ApiError } from "../../lib/errors.js";
 import { config } from "../../config.js";
 import { runWithContext } from "../../lib/prisma.js";
 import type { AccessClaims } from "../../lib/tokens.js";
+import { audit } from "../platform/security.js";
 import { createInvitation } from "../auth/service.js";
 
 const ctxOf = (a: AccessClaims) => ({
@@ -41,6 +42,7 @@ export async function createTenant(
       { tenantId: tenant.id, invitedBy: auth.userId, email: data.adminEmail, rol: "admin" },
       tenant.nombre
     );
+    await audit(tx, auth.userId, "tenant.created", tenant.id);
     return { tenant, devInvitationUrl: invitation.devInvitationUrl };
   });
 }
@@ -66,6 +68,7 @@ export async function resendTenantInvitation(auth: AccessClaims, tenantId: strin
     if (!pending) throw new ApiError("NOT_FOUND", "No hay una invitación pendiente.");
     const invitation = await createInvitation(tx, { tenantId, invitedBy: auth.userId,
       email: pending.email, rol: "admin" }, tenant.nombre);
+    await audit(tx, auth.userId, "tenant.invitation.renewed", tenantId);
     return { email: invitation.email, devInvitationUrl: invitation.devInvitationUrl };
   });
 }
@@ -173,6 +176,7 @@ export async function setTenantEstado(
         data: { estado: "fallida", claimId: null, claimedAt: null }
       });
     }
+    await audit(tx, auth.userId, `tenant.${estado}`, id);
     return tenant;
   });
 }

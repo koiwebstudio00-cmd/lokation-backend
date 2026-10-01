@@ -5,6 +5,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().min(1),
+  SUPER_ADMIN_URL: z.string().url().default("http://localhost:3003"),
+  SECURITY_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
   JWT_SECRET: z.string().default(""),
   COOKIE_SECURE: z
     .string()
@@ -93,6 +95,7 @@ if (config.AGENT_CODE_TENANT_IDS.trim()) {
 }
 
 if (config.NODE_ENV === "production") {
+  if (!config.SUPER_ADMIN_URL.startsWith("https://")) throw new Error("SUPER_ADMIN_URL debe usar HTTPS en producción.");
   if (!config.JWT_SECRET) {
     throw new Error("JWT_SECRET es obligatorio en producción (openssl rand -hex 32).");
   }

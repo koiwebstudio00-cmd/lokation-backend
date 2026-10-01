@@ -35,10 +35,10 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   const user = await runWithContext({ rol: "auth" }, (tx) =>
     tx.user.findUnique({
       where: { id: claims.userId },
-      select: { estado: true, rol: true, tenantId: true, tenant: { select: { estado: true, authVersion: true } } }
+      select: { authVersion: true, deletedAt: true, estado: true, rol: true, tenantId: true, tenant: { select: { estado: true, authVersion: true } } }
     })
   );
-  if (!user || user.estado !== "activo" || user.rol !== claims.rol ||
+  if (!user || user.deletedAt || user.authVersion !== (claims.userAuthVersion ?? 0) || user.estado !== "activo" || user.rol !== claims.rol ||
       (user.tenantId ?? undefined) !== claims.tenantId) {
     throw new ApiError("UNAUTHORIZED", "Sesión expirada o inválida.");
   }

@@ -16,7 +16,7 @@ export function adminDb(): PrismaClient {
 
 export async function truncateAll() {
   await adminDb().$executeRawUnsafe(
-    `truncate tenants, users, invitations, refresh_tokens, password_resets,
+    `truncate platform_audit, auth_challenges, tenants, users, invitations, refresh_tokens, password_resets,
      properties, property_images, leads, lead_notes, webhook_endpoints,
      webhook_deliveries, api_keys, conversations, conversation_messages,
      vendedores_agente, handoffs, channel_accounts, channel_webhook_events,

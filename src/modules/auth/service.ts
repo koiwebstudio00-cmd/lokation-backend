@@ -40,6 +40,7 @@ function toSafeUser(u: {
   email: string;
   rol: string;
   tenantId: string | null;
+  authVersion?: number;
   tenant?: { id: string; nombre: string; slug: string } | null;
 }): SafeUser {
   return {
@@ -52,11 +53,16 @@ function toSafeUser(u: {
   };
 }
 
-async function createSession(
+export async function createSession(
   tx: Tx,
   user: Parameters<typeof toSafeUser>[0],
   userAgent?: string
 ): Promise<Session> {
+  await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id}::uuid FOR UPDATE`;
+  const currentUser = await tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { authVersion: true, estado: true, deletedAt: true } });
+  if (currentUser.estado !== "activo" || currentUser.deletedAt || currentUser.authVersion !== (user.authVersion ?? 0)) {
+    throw new ApiError("UNAUTHORIZED", "La cuenta cambió. Volvé a ingresar.");
+  }
   const tenant = user.tenantId
     ? await tx.tenant.findUniqueOrThrow({
         where: { id: user.tenantId },
@@ -77,6 +83,7 @@ async function createSession(
   });
   const access = await signAccessToken({
     userId: user.id,
+    userAuthVersion: currentUser.authVersion,
     tenantId: user.tenantId ?? undefined,
     authVersion: tenant?.authVersion,
     rol: user.rol as AccessClaims["rol"]
@@ -89,7 +96,8 @@ const CREDENCIALES = new ApiError("UNAUTHORIZED", "Email o contraseña incorrect
 export async function login(
   email: string,
   password: string,
-  userAgent?: string
+  userAgent?: string,
+  otp?: string
 ): Promise<Session> {
   return runWithContext(AUTH_CTX, async (tx) => {
     const user = await tx.user.findFirst({
@@ -101,6 +109,8 @@ export async function login(
     if (user.tenant && user.tenant.estado === "suspendido") {
       throw new ApiError("FORBIDDEN", "La cuenta de la inmobiliaria está suspendida.");
     }
+    const { verifySecondFactor } = await import("../platform/security.js");
+    await verifySecondFactor(tx, user.id, otp);
     return createSession(tx, user, userAgent);
   });
 }
@@ -118,6 +128,7 @@ export async function refresh(refreshToken: string, userAgent?: string): Promise
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
       throw new ApiError("UNAUTHORIZED", "Sesión expirada o inválida.");
     }
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${stored.userId}::uuid FOR UPDATE`;
     if (stored.user.estado !== "activo") {
       throw new ApiError("UNAUTHORIZED", "Usuario inactivo.");
     }
@@ -125,10 +136,10 @@ export async function refresh(refreshToken: string, userAgent?: string): Promise
       throw new ApiError("FORBIDDEN", "La cuenta de la inmobiliaria está suspendida.");
     }
     // Rotación: el token usado queda revocado.
-    await tx.refreshToken.update({
-      where: { id: stored.id },
-      data: { revokedAt: new Date() }
+    const rotated = await tx.refreshToken.updateMany({
+      where: { id: stored.id, revokedAt: null }, data: { revokedAt: new Date() }
     });
+    if (!rotated.count) throw new ApiError("UNAUTHORIZED", "Sesión expirada o inválida.");
     return createSession(tx, stored.user, userAgent);
   });
 }
@@ -170,7 +181,7 @@ export async function resetPassword(token: string, password: string) {
     await tx.passwordReset.update({ where: { id: reset.id }, data: { usedAt: new Date() } });
     await tx.user.update({
       where: { id: reset.userId },
-      data: { passwordHash: await hashPassword(password) }
+      data: { passwordHash: await hashPassword(password), authVersion: { increment: 1 } }
     });
     // Cierra todas las sesiones abiertas.
     await tx.refreshToken.updateMany({

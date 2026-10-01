@@ -12,11 +12,12 @@ export interface AccessClaims {
   userId: string;
   tenantId?: string;
   authVersion?: number;
+  userAuthVersion?: number;
   rol: Exclude<Rol, "public" | "auth">;
 }
 
 export async function signAccessToken(claims: AccessClaims): Promise<string> {
-  return jwt.sign({ tenant_id: claims.tenantId ?? null, auth_version: claims.authVersion ?? null, rol: claims.rol }, jwtSecret, {
+  return jwt.sign({ user_auth_version: claims.userAuthVersion ?? 0, tenant_id: claims.tenantId ?? null, auth_version: claims.authVersion ?? null, rol: claims.rol }, jwtSecret, {
     subject: claims.userId,
     expiresIn: ACCESS_TTL,
     algorithm: "HS256"
@@ -27,6 +28,7 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims> {
   const payload = jwt.verify(token, jwtSecret, { algorithms: ["HS256"] }) as jwt.JwtPayload;
   return {
     userId: payload.sub as string,
+    userAuthVersion: (payload.user_auth_version as number) ?? 0,
     tenantId: (payload.tenant_id as string | null) ?? undefined,
     authVersion: (payload.auth_version as number | null) ?? undefined,
     rol: payload.rol as AccessClaims["rol"]

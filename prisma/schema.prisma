@@ -303,6 +303,10 @@ model User {
   nombre       String
   email        String     @unique @db.Citext
   passwordHash String     @map("password_hash")
+  authVersion  Int        @default(0) @map("auth_version")
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  security     UserSecurity?
+  passkeys     Passkey[]
   rol          UserRol
   estado       UserEstado @default(activo)
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -801,4 +805,46 @@ model FeedbackComentario {
 
   @@index([feedbackId, createdAt])
   @@map("feedback_comentarios")
+}
+
+model UserSecurity {
+  userId String @id @map("user_id") @db.Uuid
+  secret String?
+  pendingSecret String? @map("pending_secret")
+  pendingExpiresAt DateTime? @map("pending_expires_at") @db.Timestamptz(6)
+  enabled Boolean @default(false)
+  lastStep Int @default(0) @map("last_step")
+  recoveryHashes String[] @default([]) @map("recovery_hashes")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("user_security")
+}
+model Passkey {
+  id String @id
+  userId String @map("user_id") @db.Uuid
+  publicKey Bytes @map("public_key")
+  counter BigInt @default(0)
+  transports String[] @default([])
+  nombre String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("passkeys")
+}
+model AuthChallenge {
+  id String @id
+  userId String? @map("user_id") @db.Uuid
+  kind String
+  challenge String
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  @@index([expiresAt])
+  @@map("auth_challenges")
+}
+model PlatformAudit {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId String @map("actor_id") @db.Uuid
+  action String
+  targetId String @map("target_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@index([targetId, createdAt])
+  @@map("platform_audit")
 }

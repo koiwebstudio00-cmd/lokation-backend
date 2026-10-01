@@ -103,6 +103,7 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string
 ) {
+  if (auth.rol === "super_admin") throw new ApiError("FORBIDDEN", "Usá la sección de seguridad del panel de plataforma.");
   await runWithContext(ctxOf(auth), async (tx) => {
     const user = await tx.user.findUnique({ where: { id: auth.userId } });
     if (!user || !(await verifyPassword(user.passwordHash, currentPassword))) {

@@ -23,12 +23,12 @@ const limiter: RequestHandler =
           })
       });
 
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
+const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1), otp: z.string().max(100).optional() });
 const passwordSchema = z.string().min(8, "La contraseña debe tener al menos 8 caracteres.");
 
 authRoutes.post("/auth/login", limiter, async (req, res) => {
-  const { email, password } = loginSchema.parse(req.body);
-  const s = await auth.login(email, password, req.get("user-agent") ?? undefined);
+  const { email, password, otp } = loginSchema.parse(req.body);
+  const s = await auth.login(email, password, req.get("user-agent") ?? undefined, otp);
   setAuthCookies(res, s);
   res.json({ user: s.user, csrf_token: s.csrf });
 });
