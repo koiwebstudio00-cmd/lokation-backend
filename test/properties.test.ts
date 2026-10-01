@@ -329,4 +329,29 @@ describe.runIf(DB_AVAILABLE)("Propiedades: CRUD sin fricción e imágenes", () =
       });
     }
   });
+  it("guarda referencia y sugiere ubicaciones solo del tenant, combinando zona vacía y búsqueda", async () => {
+    const created = await post(agenteA.agent, agenteA.csrf, "/v1/properties", {
+      titulo: "Referencia singular", operacion: "venta", tipo: "casa", precio: 100
+    });
+    const id = created.body.property.id;
+    const updated = await patch(agenteA.agent, agenteA.csrf, `/v1/properties/${id}`, {
+      zona: "Zona propia A", ciudad: "Ciudad propia A", punto_referencia: "Frente a la plaza"
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.property.puntoReferencia).toBe("Frente a la plaza");
+    const own = await agenteA.agent.get("/v1/properties/locations");
+    expect(own.status).toBe(200);
+    expect(own.body.zonas).toContain("Zona propia A");
+    expect(own.body.ciudades).toContain("Ciudad propia A");
+    const other = await adminB.agent.get("/v1/properties/locations");
+    expect(other.body.zonas).not.toContain("Zona propia A");
+    expect(other.body.ciudades).not.toContain("Ciudad propia A");
+    const filtered = await adminA.agent.get("/v1/properties?zona_revisar=true&q=Referencia%20singular");
+    expect(filtered.body.meta.total).toBe(0);
+    await patch(agenteA.agent, agenteA.csrf, `/v1/properties/${id}`, { zona: null });
+    const missing = await adminA.agent.get("/v1/properties?zona_revisar=true&q=Referencia%20singular");
+    expect(missing.body.data.map((p: { id: string }) => p.id)).toEqual([id]);
+    expect((await request(app).get("/v1/properties/locations")).status).toBe(401);
+  });
+
 });

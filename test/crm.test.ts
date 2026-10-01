@@ -555,4 +555,19 @@ describe.runIf(DB_AVAILABLE)("CRM de leads", () => {
     const despues = await adminA.agent.get("/v1/leads");
     expect(despues.body.meta.total).toBe(1); // sobrevive el manual
   });
+  it("muestra atención pendiente aunque haya una conversación posterior, aislada entre tenants", async () => {
+    const lead = await adminDb().lead.create({ data: { tenantId: A.tenant.id, canal: "whatsapp", nombre: "Pendiente prueba", mensaje: "Visita" } });
+    const conv = await adminDb().conversation.create({ data: { tenantId: A.tenant.id, leadId: lead.id, canal: "whatsapp", canalRef: "atencion-test", tipoPropiedad: [], zonas: [] } });
+    const handoff = await adminDb().handoff.create({ data: { tenantId: A.tenant.id, conversationId: conv.id, vendedorId: A.agente.id, motivo: "visita" } });
+    await adminDb().conversation.create({ data: { tenantId: A.tenant.id, leadId: lead.id, canal: "web", canalRef: "atencion-posterior", tipoPropiedad: [], zonas: [] } });
+    const own = await adminA.agent.get("/v1/leads?atencion=true");
+    expect(own.status).toBe(200);
+    expect(own.body.data.find((l: { id: string }) => l.id === lead.id)?.derivacion).toMatchObject({ motivo: "visita", pendiente: true });
+    expect((await adminA.agent.get(`/v1/leads/${lead.id}`)).body.lead.derivacion).toMatchObject({ pendiente: true });
+    const other = await adminB.agent.get("/v1/leads?atencion=true");
+    expect(other.body.data.some((l: { id: string }) => l.id === lead.id)).toBe(false);
+    await adminDb().handoff.update({ where: { id: handoff.id }, data: { resultado: "tomado" } });
+    expect((await adminA.agent.get("/v1/leads?atencion=true")).body.data.some((l: { id: string }) => l.id === lead.id)).toBe(false);
+  });
+
 });

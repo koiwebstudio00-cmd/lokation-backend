@@ -154,6 +154,8 @@ export interface LeadFilters {
   propertyId?: string;
   q?: string;
   sinTomar?: boolean;
+  /** true = solo leads con una derivación de Agente IA todavía sin tomar. */
+  atencion?: boolean;
   excluirAgenteWeb?: boolean;
   page: number;
   limit: number;
@@ -172,6 +174,12 @@ export async function listLeads(auth: AccessClaims, f: LeadFilters) {
         : f.sinTomar === false
           ? { tomadoAt: { not: null } }
           : {}),
+      // "Necesita atención": Agente IA derivó a un humano y el handoff sigue
+      // pendiente. Es distinto de `sinTomar`, que mira el lead y también
+      // incluye las consultas de la web (que no tienen derivación).
+      ...(f.atencion === true
+        ? { conversations: { some: { handoffs: { some: { resultado: "pendiente" } } } } }
+        : {}),
       // Separacion agente/consultas: el panel esconde las conversaciones del
       // agente web (canal "web" con canal_ref seteado). El formulario deja
       // canal_ref en null, asi que las consultas reales quedan.
@@ -194,7 +202,22 @@ export async function listLeads(auth: AccessClaims, f: LeadFilters) {
         include: {
           property: { select: { id: true, titulo: true } },
           assignee: { select: { id: true, nombre: true } },
-          takenBy: { select: { id: true, nombre: true } }
+          takenBy: { select: { id: true, nombre: true } },
+          // La derivación pendiente más reciente de una conversación abierta.
+          // Coincide con el criterio del filtro de atención.
+          conversations: {
+            where: { handoffs: { some: { resultado: "pendiente" } } },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              handoffs: {
+                where: { resultado: "pendiente" },
+                orderBy: { asignadoAt: "desc" },
+                take: 1,
+                select: { motivo: true, resultado: true, asignadoAt: true }
+              }
+            }
+          }
         },
         orderBy: { createdAt: "desc" },
         skip: (f.page - 1) * f.limit,
@@ -202,8 +225,30 @@ export async function listLeads(auth: AccessClaims, f: LeadFilters) {
       }),
       tx.lead.count({ where })
     ]);
-    return { data, meta: { page: f.page, limit: f.limit, total } };
+    return {
+      data: data.map(({ conversations, ...lead }) => ({
+        ...lead,
+        derivacion: derivacionDe(conversations)
+      })),
+      meta: { page: f.page, limit: f.limit, total }
+    };
   });
+}
+
+/**
+ * Aplana la derivación pendiente del lead para el panel. `pendiente` es lo que
+ * marca "necesita atención": el handoff existe y nadie lo tomó todavía.
+ */
+function derivacionDe(
+  conversations: { handoffs: { motivo: string; resultado: string; asignadoAt: Date }[] }[]
+) {
+  const handoff = conversations[0]?.handoffs[0];
+  if (!handoff) return null;
+  return {
+    motivo: handoff.motivo,
+    pendiente: handoff.resultado === "pendiente",
+    asignado_at: handoff.asignadoAt
+  };
 }
 
 /** Alta manual (consulta telefónica, visita, etc.). */
@@ -240,11 +285,26 @@ export async function getLead(auth: AccessClaims, id: string) {
         notes: {
           orderBy: { createdAt: "desc" },
           include: { user: { select: { id: true, nombre: true } } }
+        },
+        // Igual que en listLeads: una derivación pendiente, aplanada para el panel.
+        conversations: {
+          where: { handoffs: { some: { resultado: "pendiente" } } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            handoffs: {
+              where: { resultado: "pendiente" },
+              orderBy: { asignadoAt: "desc" },
+              take: 1,
+              select: { motivo: true, resultado: true, asignadoAt: true }
+            }
+          }
         }
       }
     });
     if (!lead) throw new ApiError("NOT_FOUND", "El recurso no existe.");
-    return lead;
+    const { conversations, ...rest } = lead;
+    return { ...rest, derivacion: derivacionDe(conversations) };
   });
 }
 
@@ -326,7 +386,7 @@ export async function updateLead(
     const { count } = await tx.lead.updateMany({ where: { id }, data });
     if (count === 0) throw new ApiError("NOT_FOUND", "El recurso no existe.");
     // Una clasificación manual como fantasma significa que una persona ya
-    // intentó contactarlo. Se silencia a Sofi y se cancelan los vencimientos,
+    // intentó contactarlo. Se silencia a Agente IA y se cancelan los vencimientos,
     // pero no se crea una asignación automática ni se cambia el vendedor.
     if (data.clasificacion === "fantasma") {
       await repo.silenceConversationForManualGhost(tx, id);

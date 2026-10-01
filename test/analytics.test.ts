@@ -1,6 +1,7 @@
 import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { previousPeriod } from "../src/modules/analytics/routes.js";
 import {
   adminDb,
   DB_AVAILABLE,
@@ -94,7 +95,7 @@ describe.runIf(DB_AVAILABLE)("Analíticas", () => {
         tenantId: A.tenant.id,
         canal: "web",
         canalRef: "prueba-analytics",
-        nombre: "Prueba Sofía",
+        nombre: "Prueba Agente IA",
         mensaje: "No debe contar",
         createdAt: new Date("2026-08-13T14:00:00Z")
       }
@@ -189,14 +190,83 @@ describe.runIf(DB_AVAILABLE)("Analíticas", () => {
   });
 
   it("no permite que un vendedor consulte analíticas globales", async () => {
-    const res = await agenteA.get(`/v1/analytics/overview?${range}`);
-    expect(res.status).toBe(403);
+    for (const path of ["overview", "leads", "sofia", "properties"]) {
+      const res = await agenteA.get(`/v1/analytics/${path}?${range}`);
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("compara un mes calendario con el mes anterior", async () => {
+    const res = await adminA.get(`/v1/analytics/overview?${range}`);
+    expect(res.body.period.previous).toEqual({ from: "2026-07-01", to: "2026-07-31" });
+    // En julio no hay datos: la comparación existe pero en cero.
+    expect(res.body.previous_kpis).toMatchObject({ leads_created: 0, sofia_conversations: 0 });
+
+    const leads = await adminA.get(`/v1/analytics/leads?${range}`);
+    expect(leads.body.previous_summary).toMatchObject({ total: 0, taken: 0 });
+  });
+
+  it("devuelve la actividad de Agente IA del período", async () => {
+    const res = await adminA.get(`/v1/analytics/sofia?${range}`);
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({
+      conversations: 1,
+      handed_off: 1,
+      handoff_rate: 100,
+      followed_up: 0
+    });
+    expect(res.body.by_handoff_result).toEqual({ pendiente: 1 });
+    expect(res.body.by_hour).toHaveLength(24);
+    expect(res.body.by_hour[13]).toEqual({ bucket: 13, count: 1 });
+    expect(res.body.by_weekday).toHaveLength(7);
+    expect(res.body.previous_summary).toMatchObject({ conversations: 0 });
+  });
+
+  it("cruza demanda por zona con el inventario disponible", async () => {
+    const res = await adminA.get(`/v1/analytics/properties?${range}`);
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({
+      created: 1,
+      leads_with_property: 1,
+      properties_with_leads: 1,
+      available_without_leads: 0,
+      available: 1
+    });
+    expect(res.body.demand_by_zone).toEqual([{ zona: "Centro", consultas: 1, disponibles: 1 }]);
+    expect(res.body.leads_by_operation).toEqual({ alquiler: 1 });
+    expect(res.body.idle_properties).toEqual([]);
   });
 
   it("rechaza períodos invertidos o mayores a un año", async () => {
     const inverted = await adminA.get("/v1/analytics/leads?from=2026-09-01&to=2026-08-01");
     expect(inverted.status).toBe(400);
+    expect((await adminA.get("/v1/analytics/leads?from=2026-02-30&to=2026-03-01")).status).toBe(400);
     const tooLong = await adminA.get("/v1/analytics/leads?from=2025-01-01&to=2026-08-01");
     expect(tooLong.status).toBe(400);
+  });
+});
+
+describe("previousPeriod", () => {
+  it("usa el mes calendario anterior para un mes completo", () => {
+    expect(previousPeriod("2026-09-01", "2026-09-30", 30)).toEqual({
+      from: "2026-08-01",
+      to: "2026-08-31"
+    });
+    expect(previousPeriod("2026-01-01", "2026-01-31", 31)).toEqual({
+      from: "2025-12-01",
+      to: "2025-12-31"
+    });
+    expect(previousPeriod("2026-03-01", "2026-03-31", 31)).toEqual({
+      from: "2026-02-01",
+      to: "2026-02-28"
+    });
+  });
+
+  it("usa la misma cantidad de días inmediatamente antes para otros rangos", () => {
+    expect(previousPeriod("2026-09-01", "2026-09-30", 30).to).toBe("2026-08-31");
+    expect(previousPeriod("2026-09-10", "2026-09-16", 7)).toEqual({
+      from: "2026-09-03",
+      to: "2026-09-09"
+    });
   });
 });

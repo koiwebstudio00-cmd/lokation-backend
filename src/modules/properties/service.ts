@@ -33,6 +33,8 @@ export interface PropertyFilters {
   vendedor?: string;
   dormitorios?: number;
   q?: string;
+  /** Solo las que tienen zona sin completar. */
+  zonaRevisar?: boolean;
   page: number;
   limit: number;
 }
@@ -53,6 +55,9 @@ function whereFrom(f: PropertyFilters): Prisma.PropertyWhereInput {
     // dormitorios: exacto para 1..3; 4 significa "4 o más".
     ...(dormitorios !== undefined
       ? { dormitorios: dormitorios >= 4 ? { gte: dormitorios } : dormitorios }
+      : {}),
+    ...(f.zonaRevisar
+      ? { OR: [{ zona: null }, { zona: "" }] }
       : {}),
     ...palabrasWhere(parsed.palabras)
   };
@@ -81,6 +86,16 @@ export async function listProperties(auth: AccessClaims, f: PropertyFilters) {
       tx.property.count({ where })
     ]);
     return { data, meta: { page: f.page, limit: f.limit, total } };
+  });
+}
+
+export async function propertyLocations(auth: AccessClaims) {
+  return runWithContext(ctxOf(auth), async (tx) => {
+    const [zones, cities] = await Promise.all([
+      tx.property.groupBy({ by: ["zona"], where: { zona: { not: null } }, orderBy: { zona: "asc" }, take: 200 }),
+      tx.property.groupBy({ by: ["ciudad"], where: { ciudad: { not: null } }, orderBy: { ciudad: "asc" }, take: 200 })
+    ]);
+    return { zonas: zones.map(p => p.zona!).filter(v => v.trim()), ciudades: cities.map(p => p.ciudad!).filter(v => v.trim()) };
   });
 }
 
@@ -164,6 +179,7 @@ export interface PropertyUpdate {
   // /:id/destacada, admin-only). updateProperty nunca la toca.
   direccion?: string | null;
   zona?: string | null;
+  puntoReferencia?: string | null;
   ciudad?: string | null;
   ambientes?: number | null;
   dormitorios?: number | null;

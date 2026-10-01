@@ -346,6 +346,7 @@ model Property {
   monedaAlquiler Moneda?           @map("moneda_alquiler")
   descripcion    String?
   direccion      String?
+  puntoReferencia String? @map("punto_referencia")
   zona           String?
   ciudad         String?
   ambientes      Int?              @db.SmallInt

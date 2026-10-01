@@ -54,6 +54,8 @@ const filtersSchema = z.object({
   estado: z.enum(["nueva", "en_contacto", "ganada", "perdida"]).optional(),
   canal: z.enum(["web", "whatsapp", "instagram", "messenger", "manual"]).optional(),
   clasificacion: z.enum(["potencial", "fantasma"]).optional(),
+  // Solo los que tienen una derivación de Agente IA sin tomar.
+  atencion: z.enum(["true", "false"]).optional(),
   assigned_to: z.string().uuid().optional(),
   property_id: z.string().uuid().optional(),
   q: z.string().trim().min(1).optional(),
@@ -72,6 +74,7 @@ crmRoutes.get("/leads", async (req, res) => {
       estado: f.estado,
       canal: f.canal,
       clasificacion: f.clasificacion,
+      ...(f.atencion !== undefined ? { atencion: f.atencion === "true" } : {}),
       assignedTo: f.assigned_to,
       propertyId: f.property_id,
       q: f.q,

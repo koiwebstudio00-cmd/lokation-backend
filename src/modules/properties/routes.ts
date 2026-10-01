@@ -27,18 +27,28 @@ const filtersSchema = z.object({
   vendedor: z.string().uuid().optional(),
   dormitorios: z.coerce.number().int().min(0).optional(),
   q: z.string().trim().min(1).optional(),
+  // Propiedades con la zona pendiente de completar.
+  zona_revisar: z.enum(["true", "false"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(props.PAGE_SIZE)
 });
 
 const idParam = () => z.string().uuid();
 
+function parseFilters(query: unknown): props.PropertyFilters {
+  const { zona_revisar, ...rest } = filtersSchema.parse(query);
+  return {
+    ...rest,
+    ...(zona_revisar !== undefined ? { zonaRevisar: zona_revisar === "true" } : {})
+  };
+}
+
 propertyRoutes.get("/properties", async (req, res) => {
-  res.json(await props.listProperties(req.auth!, filtersSchema.parse(req.query)));
+  res.json(await props.listProperties(req.auth!, parseFilters(req.query)));
 });
 
 propertyRoutes.get("/properties/mine", async (req, res) => {
-  res.json(await props.myProperties(req.auth!, filtersSchema.parse(req.query)));
+  res.json(await props.myProperties(req.auth!, parseFilters(req.query)));
 });
 
 // Campos de alquiler (opcionales en create y update). En BD son texto; acá se
@@ -78,6 +88,10 @@ propertyRoutes.post("/properties", async (req, res) => {
   res.status(201).json({ property });
 });
 
+propertyRoutes.get("/properties/locations", async (req, res) => {
+  res.json(await props.propertyLocations(req.auth!));
+});
+
 propertyRoutes.get("/properties/:id", async (req, res) => {
   res.json({ property: await props.getProperty(req.auth!, idParam().parse(req.params.id)) });
 });
@@ -97,6 +111,9 @@ const updateSchema = z
     // querer.
     direccion: z.string().nullable().optional(),
     zona: z.string().nullable().optional(),
+    // Referencia libre ("a 1 cuadra de Mate de Luna"): NO es la zona ni la
+    // dirección. Existe para que esos textos dejen de ir al campo zona.
+    punto_referencia: z.string().trim().max(200).nullable().optional(),
     ciudad: z.string().nullable().optional(),
     ambientes: z.coerce.number().int().nonnegative().nullable().optional(),
     dormitorios: z.coerce.number().int().nonnegative().nullable().optional(),
@@ -116,6 +133,7 @@ propertyRoutes.patch("/properties/:id", async (req, res) => {
     sup_cubierta,
     sup_total,
     link_maps,
+    punto_referencia,
     plazo_contrato,
     plazo_otro,
     ajuste_otro,
@@ -127,6 +145,7 @@ propertyRoutes.patch("/properties/:id", async (req, res) => {
   } = updateSchema.parse(req.body);
   const property = await props.updateProperty(req.auth!, id, {
     ...rest,
+    ...(punto_referencia !== undefined ? { puntoReferencia: punto_referencia } : {}),
     ...(sup_cubierta !== undefined ? { supCubierta: sup_cubierta } : {}),
     ...(sup_total !== undefined ? { supTotal: sup_total } : {}),
     ...(link_maps !== undefined ? { linkMaps: link_maps } : {}),
