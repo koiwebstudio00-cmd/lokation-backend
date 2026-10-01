@@ -46,10 +46,12 @@ tenantRoutes.patch("/tenants/current", requireRole("admin"), async (req, res) =>
       config_sitio: z.object({
         descripcion: z.string().trim().min(30).max(500),
         telefono: z.string().trim().max(40).optional(),
-        email: z.string().email().max(254).optional(),
+        email: z.union([z.string().email().max(254), z.literal("")]).optional(),
         direccion: z.string().trim().max(200).optional(),
         ciudad: z.string().trim().max(100).optional(),
-        imagen_portada_url: z.string().url().optional()
+        imagen_portada_url: z.union([z.string().url(), z.literal("")]).optional(),
+        lema: z.string().trim().max(100).optional(),
+        color_primario: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Elegí un color hexadecimal válido.").optional()
       }).strict().optional(),
       site_published: z.boolean().optional(),
       agent_config: z.object({

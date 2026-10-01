@@ -66,7 +66,8 @@ describe.runIf(DB_AVAILABLE)("Alta y sitio público por inmobiliaria", () => {
     const saved = await adminA.patch("/v1/tenants/current").set("x-csrf-token", csrfA).send({
       nombre: "Inmo A renovada", site_published: true,
       config_sitio: { descripcion: "Ofrecemos propiedades seleccionadas en Tucumán y alrededores.",
-        email: "contacto@a.test" } });
+        email: "contacto@a.test", lema: "Tu próximo lugar empieza acá",
+        color_primario: "#1b5148" } });
     expect(saved.status).toBe(200);
     expect(saved.body.tenant.sitePublished).toBe(true);
   });
@@ -75,6 +76,8 @@ describe.runIf(DB_AVAILABLE)("Alta y sitio público por inmobiliaria", () => {
     const site = await request(app).get("/v1/public/sites/publica-a");
     expect(site.status).toBe(200);
     expect(site.body.site.nombre).toBe("Inmo A renovada");
+    expect(site.body.site.lema).toBe("Tu próximo lugar empieza acá");
+    expect(site.body.site.color_primario).toBe("#1b5148");
     const list = await request(app).get("/v1/public/sites/publica-a/properties");
     expect(list.body.data.map((property: { titulo: string }) => property.titulo)).toEqual(["Casa A"]);
     expect(JSON.stringify(list.body)).not.toMatch(/Secreto|notas|tenantId|userId/);
@@ -84,6 +87,21 @@ describe.runIf(DB_AVAILABLE)("Alta y sitio público por inmobiliaria", () => {
     expect(exported.status).toBe(200);
     expect(exported.body.properties).toHaveLength(1);
     expect(exported.headers["content-disposition"]).toContain("publica-a-catalogo.json");
+  });
+
+  it("valida la identidad visual y permite quitar datos de contacto", async () => {
+    const invalid = await adminA.patch("/v1/tenants/current").set("x-csrf-token", csrfA).send({
+      config_sitio: { descripcion: "Ofrecemos propiedades seleccionadas en Tucumán y alrededores.",
+        color_primario: "red" } });
+    expect(invalid.status).toBe(400);
+    const updated = await adminA.patch("/v1/tenants/current").set("x-csrf-token", csrfA).send({
+      config_sitio: { descripcion: "Ofrecemos propiedades seleccionadas en Tucumán y alrededores.",
+        email: "", lema: "", color_primario: "#275c73" } });
+    expect(updated.status).toBe(200);
+    const site = await request(app).get("/v1/public/sites/publica-a");
+    expect(site.body.site.email).toBeNull();
+    expect(site.body.site.lema).toBeNull();
+    expect(site.body.site.color_primario).toBe("#275c73");
   });
 
   it("la inmobiliaria B sigue oculta y una suspensión oculta A", async () => {

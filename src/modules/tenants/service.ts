@@ -75,7 +75,7 @@ export async function updateCurrentTenant(
   data: {
     logoUrl?: string | null;
     nombre?: string;
-    configSitio?: { descripcion: string; telefono?: string; email?: string; direccion?: string; ciudad?: string; imagen_portada_url?: string };
+    configSitio?: { descripcion: string; telefono?: string; email?: string; direccion?: string; ciudad?: string; imagen_portada_url?: string; lema?: string; color_primario?: string };
     sitePublished?: boolean;
     agentConfig?: { model: string; instructions: string };
     agentEnabled?: boolean;

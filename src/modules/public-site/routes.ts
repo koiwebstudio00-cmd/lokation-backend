@@ -26,12 +26,13 @@ async function publishedSite(slug: string) {
   }
   const raw = tenant.configSitio && typeof tenant.configSitio === "object" && !Array.isArray(tenant.configSitio)
     ? tenant.configSitio as Record<string, unknown> : {};
-  const field = (key: string) => typeof raw[key] === "string" ? raw[key] as string : null;
+  const field = (key: string) => typeof raw[key] === "string" ? (raw[key] as string).trim() || null : null;
   return { id: tenant.id, public: {
     nombre: tenant.nombre, slug: tenant.slug, logo_url: tenant.logoUrl,
     descripcion: field("descripcion"), telefono: field("telefono"), email: field("email"),
     direccion: field("direccion"), ciudad: field("ciudad"),
-    imagen_portada_url: field("imagen_portada_url")
+    imagen_portada_url: field("imagen_portada_url"), lema: field("lema"),
+    color_primario: field("color_primario")
   } };
 }
 
