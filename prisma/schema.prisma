@@ -304,6 +304,7 @@ model User {
   email        String     @unique @db.Citext
   passwordHash String     @map("password_hash")
   authVersion  Int        @default(0) @map("auth_version")
+  googleSubject String? @unique @map("google_subject")
   deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(6)
   security     UserSecurity?
   passkeys     Passkey[]
@@ -832,6 +833,7 @@ model Passkey {
 }
 model AuthChallenge {
   id String @id
+  attempts Int @default(0)
   userId String? @map("user_id") @db.Uuid
   kind String
   challenge String

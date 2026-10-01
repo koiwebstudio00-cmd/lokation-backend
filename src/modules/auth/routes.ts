@@ -5,6 +5,7 @@ import { config } from "../../config.js";
 import { clearAuthCookies, REFRESH_COOKIE, setAuthCookies } from "../../lib/cookies.js";
 import { requireAuth } from "../../middleware/auth.js";
 import * as auth from "./service.js";
+import { beginPasswordLogin, beginGoogleLogin, finishSecondFactor, type LoginResult } from "./login-flow.js";
 
 export const authRoutes = Router();
 
@@ -25,6 +26,26 @@ const limiter: RequestHandler =
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1), otp: z.string().max(100).optional() });
 const passwordSchema = z.string().min(8, "La contraseña debe tener al menos 8 caracteres.");
+
+const panelSchema = z.enum(["superadmin", "dashboard"]);
+function respondLogin(res: import("express").Response, result: LoginResult) {
+  res.set("Cache-Control", "no-store");
+  if ("twoFactorRequired" in result) { res.json(result); return; }
+  setAuthCookies(res, result);
+  res.json({ user: result.user, csrf_token: result.csrf });
+}
+authRoutes.post("/auth/login/start", limiter, async (req, res) => {
+  const { email, password, panel } = loginSchema.extend({ panel: panelSchema }).parse(req.body);
+  respondLogin(res, await beginPasswordLogin(email, password, panel, req.get("user-agent")));
+});
+authRoutes.post("/auth/login/verify", limiter, async (req, res) => {
+  const { challenge, otp, panel } = z.object({ challenge: z.string().min(32).max(200), otp: z.string().trim().min(1).max(100), panel: panelSchema }).parse(req.body);
+  respondLogin(res, await finishSecondFactor(challenge, otp, panel, req.get("user-agent")));
+});
+authRoutes.post("/auth/google", limiter, async (req, res) => {
+  const { idToken, panel } = z.object({ idToken: z.string().min(20).max(10000), panel: panelSchema }).parse(req.body);
+  respondLogin(res, await beginGoogleLogin(idToken, panel, req.get("user-agent")));
+});
 
 authRoutes.post("/auth/login", limiter, async (req, res) => {
   const { email, password, otp } = loginSchema.parse(req.body);

@@ -28,7 +28,7 @@ export async function updateOperator(auth: AccessClaims, id: string, data: { nom
       if (!await tx.user.count({ where: { rol: "super_admin", estado: "activo", deletedAt: null, id: { not: id } } })) throw new ApiError("CONFLICT", "Debe quedar un superadministrador activo.");
     }
     if (data.email && await tx.user.findFirst({ where: { email: data.email, id: { not: id } } })) throw new ApiError("CONFLICT", "Ese email ya tiene una cuenta.");
-    const user = await tx.user.update({ where: { id }, data: { ...data, ...(remove ? { deletedAt: new Date(), estado: "inactivo" as const } : {}) }, select: safe });
+    const user = await tx.user.update({ where: { id }, data: { ...data, ...(data.email ? { googleSubject: null } : {}), ...(remove ? { deletedAt: new Date(), estado: "inactivo" as const } : {}) }, select: safe });
     if (remove || data.estado || data.email) await revoke(tx, id);
     await audit(tx, auth.userId, remove ? "operator.deleted" : "operator.updated", id);
     return user;

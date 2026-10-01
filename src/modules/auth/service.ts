@@ -101,7 +101,7 @@ export async function login(
 ): Promise<Session> {
   return runWithContext(AUTH_CTX, async (tx) => {
     const user = await tx.user.findFirst({
-      where: { email, estado: "activo" },
+      where: { email: { equals: email.trim(), mode: "insensitive" }, estado: "activo", deletedAt: null },
       include: { tenant: { select: { id: true, nombre: true, slug: true, estado: true } } }
     });
     if (!user) throw CREDENCIALES;

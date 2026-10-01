@@ -6,6 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().min(1),
   SUPER_ADMIN_URL: z.string().url().default("http://localhost:3003"),
+  GOOGLE_CLIENT_ID: z.string().optional(),
   SECURITY_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
   JWT_SECRET: z.string().default(""),
   COOKIE_SECURE: z
