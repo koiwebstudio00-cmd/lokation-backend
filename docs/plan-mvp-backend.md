@@ -25,7 +25,7 @@ Diferido por decisión, no olvidado: `GET /admin/metrics`, UI de suspensión de 
 
 ## Fase 0 — Fundaciones (100% local, 0.5 semanas)
 
-- Repo `back-lamelas`: Express 5 + TS + Prisma + Zod, estructura de módulos (`arquitectura.md` §5), lint/tsc/vitest corriendo local (CI de GitHub Actions solo test/build si el repo ya está en GitHub — sin deploy).
+- Repo `back-lamelas`: Express 5 + TS + Prisma + Zod, estructura de módulos (`arquitectura.md` §5), lint/tsc/vitest corriendo local.
 - Desarrollo contra **Postgres 17 instalado localmente** (sin Docker en dev); `docker-compose.yml` queda en el repo solo como base del stack de producción (F3.5). Misma versión 17 local y en VPS para evitar sorpresas.
 - Migración inicial: enums, tablas core (`tenants`, `users`), helpers `ctx_*()`, roles de BD `app_owner`/`app_rt`.
 - Seed local y Postgres de test para la suite de integración.
@@ -68,7 +68,7 @@ Momento elegido: ya hay producto real que probar contra infra real, y las fases 
 
 - Contratar/preparar VPS: hardening (firewall 80/443/SSH, SSH por clave, fail2ban, unattended-upgrades), Docker.
 - Compose de producción (+ Caddy con `api.plataforma.com` y SSL).
-- GitHub Actions completo: test → build imagen → deploy por SSH → migrate → health check.
+- Despliegue manual en Dokploy: verificar → construir imagen → migrar → comprobar salud.
 - Backups: `pg_dump` diario → R2 + **prueba de restore documentada** (obligatoria antes de F5: sin restore probado no se migra a Lamelas).
 - Smoke test del flujo completo de F1–F3 contra producción.
 

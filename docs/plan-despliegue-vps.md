@@ -1,7 +1,7 @@
 # Plan de despliegue — Fase 3.5 (VPS Hostinger + Dokploy)
 
 **Objetivo del finde:** `GET /health` OK en producción con SSL, push a `main` deploya solo, backup restaurado con éxito.
-**Herramienta elegida:** **Dokploy** (panel open source autoalojado). Trae incluido: proxy con SSL automático (Traefik, no hay que configurarlo a mano), deploy desde GitHub sin escribir workflows, gestión de bases de datos y backups a S3/R2 desde la UI. Reemplaza al Compose manual + Caddy + GitHub Actions del plan original de F3.5 — mismo checkpoint, menos piezas nuevas que aprender.
+**Herramienta elegida:** **Dokploy** (panel open source autoalojado). Trae incluido: proxy con SSL automático (Traefik, no hay que configurarlo a mano), deploy desde GitHub sin escribir workflows, gestión de bases de datos y backups a S3/R2 desde la UI. Reemplaza al despliegue manual del plan original del plan original de F3.5 — mismo checkpoint, menos piezas nuevas que aprender.
 **Estado al 2026-07-24:** VPS contratado ✅ · dominio existe, falta registro DNS · sin R2 prod, sin SMTP prod, sin SSH configurado, repo aún no en GitHub.
 
 ---
