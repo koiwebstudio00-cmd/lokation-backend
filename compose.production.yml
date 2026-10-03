@@ -42,13 +42,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Configurar JWT_SECRET}
       SECURITY_ENCRYPTION_KEY: ${SECURITY_ENCRYPTION_KEY:?Configurar SECURITY_ENCRYPTION_KEY}
       FRONT_URL: ${FRONT_URL:-https://lokation.koistudio.com.ar}
-      SUPER_ADMIN_URL: ${SUPER_ADMIN_URL:-https://admin.lokation.koistudio.com.ar}
-      CORS_ORIGIN: ${CORS_ORIGIN:-https://lokation.koistudio.com.ar,https://admin.lokation.koistudio.com.ar}
+      SUPER_ADMIN_URL: ${SUPER_ADMIN_URL:-https://admin-lokation.koistudio.com.ar}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://lokation.koistudio.com.ar,https://admin-lokation.koistudio.com.ar}
       COOKIE_SECURE: "true"
       COOKIE_SAMESITE: lax
       STORAGE_DRIVER: local
       LOCAL_STORAGE_DIR: /app/storage
-      LOCAL_STORAGE_URL: ${LOCAL_STORAGE_URL:-https://api.lokation.koistudio.com.ar/media}
+      LOCAL_STORAGE_URL: ${LOCAL_STORAGE_URL:-https://api-lokation.koistudio.com.ar/media}
       RESEND_API_KEY: ${RESEND_API_KEY:?Configurar RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM:?Configurar EMAIL_FROM}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
