@@ -2,7 +2,9 @@
 # Activar Isolated Deployments y asignar el dominio al servicio api, puerto 3001.
 services:
   db:
-    image: postgres:17-alpine
+    build:
+      context: ./deploy
+      dockerfile: postgres.Dockerfile
     restart: unless-stopped
     environment:
       POSTGRES_DB: lokation
@@ -11,7 +13,6 @@ services:
       APP_RT_PASSWORD: ${APP_RT_PASSWORD:?Configurar APP_RT_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./deploy/init-runtime-role.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lokation_owner -d lokation"]
       interval: 5s

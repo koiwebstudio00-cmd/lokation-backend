@@ -31,3 +31,5 @@ Resend opcional con `RESEND_API_KEY` y `EMAIL_FROM`; notificaciones personales c
 ## Almacenamiento de imágenes en VPS
 
 Disponible `STORAGE_DRIVER=local`: conserva presign/PUT/confirm y guarda imágenes en un directorio persistente. Configurar `LOCAL_STORAGE_DIR` y `LOCAL_STORAGE_URL` (URL pública del backend terminada en `/media`). Ver [despliegue VPS](../docs/DESPLIEGUE_VPS.md) para volumen, proxy, copias y prueba del piloto. R2 sigue siendo el valor por defecto; no migra imágenes ya guardadas.
+
+La imagen de PostgreSQL de `compose.production.yml` se construye desde `deploy/postgres.Dockerfile` e incluye el script de inicialización. No requiere montajes de scripts en la interfaz de Dokploy.
