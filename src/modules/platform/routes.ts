@@ -36,8 +36,8 @@ platformRoutes.delete("/platform/operators/:id", async (req, res) => res.json({ 
 platformRoutes.get("/platform/security", async (req, res) => res.json(await security.securityStatus(req.auth!.userId)));
 platformRoutes.use("/platform/security", limiter);
 platformRoutes.post("/platform/security/password", async (req, res) => {
-  const body = proof.extend({ newPassword: password }).parse(req.body);
-  res.json(await security.changeOwnPassword(req.auth!.userId, body.password, body.newPassword, body.otp));
+  const body = z.object({ newPassword: password, otp: z.string().max(100).optional() }).parse(req.body);
+  res.json(await security.changeOwnPassword(req.auth!.userId, body.newPassword, body.otp));
 });
 platformRoutes.post("/platform/security/2fa/setup", async (req, res) => res.json(await security.setupTotp(req.auth!.userId, proof.parse(req.body).password)));
 platformRoutes.post("/platform/security/2fa/enable", async (req, res) => res.json(await security.enableTotp(req.auth!.userId, z.object({ code: z.string().regex(/^\d{6}$/) }).parse(req.body).code)));

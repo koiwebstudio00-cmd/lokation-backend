@@ -63,7 +63,8 @@ describe.runIf(DB_AVAILABLE)("Plataforma: permisos, operadores y seguridad", () 
     const [first, second] = await Promise.all([login(owner.email, TEST_PASSWORD, enabled.body.recoveryCodes[0]), login(owner.email, TEST_PASSWORD, enabled.body.recoveryCodes[0])]);
     expect([first.res.status, second.res.status].sort()).toEqual([200, 401]);
     session = first.res.status === 200 ? first : second;
-    const changed = await session.agent.post("/v1/platform/security/password").set("x-csrf-token", session.csrf).send({ password: TEST_PASSWORD, newPassword: password, otp: enabled.body.recoveryCodes[1] }); expect(changed.status).toBe(200);
+    await session.agent.post("/v1/platform/security/password").set("x-csrf-token", session.csrf).send({ newPassword: password }).expect(401);
+    const changed = await session.agent.post("/v1/platform/security/password").set("x-csrf-token", session.csrf).send({ newPassword: password, otp: enabled.body.recoveryCodes[1] }); expect(changed.status).toBe(200);
     expect((await session.agent.get("/v1/platform/security")).status).toBe(401);
     session = await login(owner.email, password, enabled.body.recoveryCodes[2]); expect(session.res.status).toBe(200);
     expect((await session.agent.post("/v1/users/me/password").set("x-csrf-token", session.csrf).send({ current_password: password, new_password: "bypass-123456" })).status).toBe(403);
@@ -98,4 +99,26 @@ describe.runIf(DB_AVAILABLE)("Plataforma: permisos, operadores y seguridad", () 
     expect((await session.agent.post("/v1/platform/security/passkeys/remove").set("x-csrf-token", session.csrf).send({ id, password })).status).toBe(200);
     expect((await session.agent.get("/v1/platform/security")).status).toBe(401);
   });
+  it("cambia la clave propia sin la anterior, exige sesión y CSRF y revoca sesiones", async () => {
+    const path = "/v1/platform/security/password";
+    const newPassword = "Updated-from-profile-456!";
+    await request(app).post(path).send({ newPassword }).expect(401);
+    for (const tenant of [a, b]) {
+      const user = await login(tenant.admin.email);
+      await user.agent.post(path).set("x-csrf-token", user.csrf).send({ newPassword }).expect(403);
+    }
+    const current = await login(owner.email, password);
+    const otherSession = await login(owner.email, password);
+    await current.agent.post(path).send({ newPassword }).expect(403);
+    await current.agent.post(path).set("x-csrf-token", current.csrf).send({ newPassword: "short" }).expect(400);
+    await current.agent.post(path).set("x-csrf-token", current.csrf).send({ newPassword, userId: a.admin.id }).expect(200);
+    await current.agent.get("/v1/auth/me").expect(401);
+    await otherSession.agent.get("/v1/auth/me").expect(401);
+    await otherSession.agent.post("/v1/auth/refresh").expect(401);
+    expect((await login(owner.email, password)).res.status).toBe(401);
+    expect((await login(owner.email, newPassword)).res.status).toBe(200);
+    expect((await login(a.admin.email)).res.status).toBe(200);
+    expect(await adminDb().platformAudit.count({ where: { actorId: owner.id, targetId: owner.id, action: "security.password.changed" } })).toBeGreaterThan(0);
+  });
+
 });

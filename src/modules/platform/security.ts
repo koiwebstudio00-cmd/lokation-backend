@@ -111,9 +111,11 @@ export async function disableTotp(userId: string, password: string, otp: string)
     return { ok: true };
   });
 }
-export async function changeOwnPassword(userId: string, password: string, newPassword: string, otp?: string) {
+export async function changeOwnPassword(userId: string, newPassword: string, otp?: string) {
   return runWithContext(ctx, async (tx) => {
-    await verifyOwner(tx, userId, password, otp);
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user || user.rol !== "super_admin" || user.estado !== "activo" || user.deletedAt) throw invalid();
+    await verifySecondFactor(tx, userId, otp);
     await tx.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) } });
     await revoke(tx, userId);
     await audit(tx, userId, "security.password.changed");
