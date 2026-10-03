@@ -11,7 +11,7 @@ const SILENCED_PATHS = new Set(["/v1/health"]);
 // así que hay que comparar contra originalUrl.
 export function shouldSkipLog(originalUrl: string): boolean {
   const path = originalUrl.split("?")[0] ?? originalUrl;
-  return SILENCED_PATHS.has(path);
+  return SILENCED_PATHS.has(path) || path === "/media/upload";
 }
 
 /**

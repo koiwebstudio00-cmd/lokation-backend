@@ -85,7 +85,7 @@ export async function beginGoogleLogin(idToken: string, panel: Panel, userAgent?
       if (!authoritative) throw new ApiError("FORBIDDEN", "Usá tu contraseña. Esta dirección de Google requiere vinculación verificada.");
       const matches = await tx.user.findMany({ where: { email: { equals: payload.email, mode: "insensitive" }, estado: "activo", deletedAt: null }, take: 2 });
       user = matches.length === 1 ? matches[0]! : null;
-      if (!user || user.googleSubject) throw new ApiError("FORBIDDEN", "Tu cuenta debe estar registrada y habilitada en Ubikka.");
+      if (!user || user.googleSubject) throw new ApiError("FORBIDDEN", "Tu cuenta debe estar registrada y habilitada en Lokation.");
       checkPanel(user, panel);
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id}::uuid FOR UPDATE`;
       const linked = await tx.user.updateMany({ where: { id: user.id, googleSubject: null, authVersion: user.authVersion }, data: { googleSubject: payload.sub } });

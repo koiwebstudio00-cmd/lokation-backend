@@ -1,3 +1,5 @@
+import { localStorageRouter } from "./lib/local-storage.js";
+import { notificationRoutes } from "./modules/notifications/routes.js";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
@@ -48,11 +50,13 @@ export function buildApp() {
   // JSON re-serializado. Fuera de /v1 a propósito (regla 12: /v1 es el
   // contrato versionado; esto es transporte de un proveedor externo).
   app.use("/webhooks/zernio", express.raw({ type: "*/*", limit: "1mb" }), zernioWebhookRoutes);
+  if (config.STORAGE_DRIVER === "local") app.use("/media", localStorageRouter());
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
 
   const v1 = express.Router();
   v1.use(healthRoutes);
+  v1.use(notificationRoutes);
   v1.use(authRoutes);
   v1.use(platformRoutes);
   v1.use(tenantRoutes);

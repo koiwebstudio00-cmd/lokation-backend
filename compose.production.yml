@@ -1,0 +1,68 @@
+# Dokploy: Compose Path = compose.production.yml, contexto = raíz del backend.
+# Activar Isolated Deployments y asignar el dominio al servicio api, puerto 3001.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lokation
+      POSTGRES_USER: lokation_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configurar POSTGRES_PASSWORD}
+      APP_RT_PASSWORD: ${APP_RT_PASSWORD:?Configurar APP_RT_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/init-runtime-role.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lokation_owner -d lokation"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [database]
+
+  migrate:
+    build: .
+    restart: "no"
+    entrypoint: ["./node_modules/.bin/prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://lokation_owner:${POSTGRES_PASSWORD:?Configurar POSTGRES_PASSWORD}@db:5432/lokation
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [database]
+
+  api:
+    build: .
+    restart: unless-stopped
+    entrypoint: ["node", "dist/server.js"]
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://app_rt:${APP_RT_PASSWORD:?Configurar APP_RT_PASSWORD}@db:5432/lokation
+      JWT_SECRET: ${JWT_SECRET:?Configurar JWT_SECRET}
+      SECURITY_ENCRYPTION_KEY: ${SECURITY_ENCRYPTION_KEY:?Configurar SECURITY_ENCRYPTION_KEY}
+      FRONT_URL: ${FRONT_URL:-https://lokation.koistudio.com.ar}
+      SUPER_ADMIN_URL: ${SUPER_ADMIN_URL:-https://admin.lokation.koistudio.com.ar}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://lokation.koistudio.com.ar,https://admin.lokation.koistudio.com.ar}
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: lax
+      STORAGE_DRIVER: local
+      LOCAL_STORAGE_DIR: /app/storage
+      LOCAL_STORAGE_URL: ${LOCAL_STORAGE_URL:-https://api.lokation.koistudio.com.ar/media}
+      RESEND_API_KEY: ${RESEND_API_KEY:?Configurar RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM:?Configurar EMAIL_FROM}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    volumes:
+      - media_data:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose: ["3001"]
+    networks: [database, default]
+
+volumes:
+  postgres_data:
+  media_data:
+
+networks:
+  database:
+    internal: true

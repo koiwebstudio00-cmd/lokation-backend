@@ -30,7 +30,8 @@ const exportLimiter: RequestHandler =
       });
 
 const setCache: RequestHandler = (_req, res, next) => {
-  res.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  // El mismo URL devuelve distintos tenants según X-Api-Key. No cachear en CDN.
+  res.set("Cache-Control", "private, no-store");
   next();
 };
 

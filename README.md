@@ -22,3 +22,12 @@ El documento [README.legacy.md](README.legacy.md) y los documentos importados de
 Migración aditiva `20261002010000_property_reference`: agrega `properties.punto_referencia`. Aplicada localmente a desarrollo y test. En otro entorno, ejecutar `npm run db:generate` y el procedimiento de migraciones correspondiente antes de publicar el dashboard.
 
 Local: `npm run db:migrate:deploy`; test: `npm run test:prepare` y `npm test`. La suite general pasó con 263 pruebas durante la integración; después se ampliaron y verificaron propiedades (17), CRM (27) y analíticas (10). Ubicaciones y atención incluyen comprobaciones con dos tenants. Build y lint también pasaron.
+
+## Actualización: correos, notificaciones y web pública
+
+Ver [guía de implementación y pruebas](../docs/CORREOS_NOTIFICACIONES_WEB.md).
+Resend opcional con `RESEND_API_KEY` y `EMAIL_FROM`; notificaciones personales con RLS y migración `20261003000000_notifications`.
+
+## Almacenamiento de imágenes en VPS
+
+Disponible `STORAGE_DRIVER=local`: conserva presign/PUT/confirm y guarda imágenes en un directorio persistente. Configurar `LOCAL_STORAGE_DIR` y `LOCAL_STORAGE_URL` (URL pública del backend terminada en `/media`). Ver [despliegue VPS](../docs/DESPLIEGUE_VPS.md) para volumen, proxy, copias y prueba del piloto. R2 sigue siendo el valor por defecto; no migra imágenes ya guardadas.

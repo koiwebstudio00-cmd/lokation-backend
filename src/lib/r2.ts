@@ -1,7 +1,7 @@
-// Cloudflare R2 (S3-compatible): presigned PUT para subida directa desde el
-// browser y borrado de objetos. Sin credenciales configuradas (dev/test),
-// funciona en modo stub: URLs falsas y borrado no-op, para no acoplar el
-// desarrollo local a R2. Ver arquitectura.md §7.
+import { ApiError } from "./errors.js";
+import { localUploadUrl, deleteLocalObjects, assertLocalObject } from "./local-storage.js";
+// Adaptador de imágenes: disco persistente o R2; mantiene el contrato de claves
+// y URLs existente para propiedades y adjuntos.
 import { DeleteObjectsCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
@@ -44,11 +44,12 @@ export function newAttachmentKey(tenantId: string, feedbackId: string): string {
 }
 
 export function publicUrl(key: string): string {
-  const base = config.R2_PUBLIC_URL ?? "http://localhost:3000/dev-r2";
+  const base = config.STORAGE_DRIVER === "local" ? config.LOCAL_STORAGE_URL : config.R2_PUBLIC_URL ?? "http://localhost:3000/dev-r2";
   return `${base.replace(/\/$/, "")}/${key}`;
 }
 
 export async function presignUpload(key: string): Promise<string> {
+  if (config.STORAGE_DRIVER === "local") return localUploadUrl(key);
   if (!r2Enabled) {
     // Stub local: el front de dev puede detectarlo y saltear la subida real.
     return `http://localhost:3000/dev-r2-upload/${key}?expires=${PRESIGN_TTL_SECONDS}`;
@@ -63,6 +64,7 @@ export async function presignUpload(key: string): Promise<string> {
 
 export async function deleteObjects(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
+  if (config.STORAGE_DRIVER === "local") return deleteLocalObjects(keys);
   if (!r2Enabled) {
     console.log(`[r2-dev] delete no-op: ${keys.length} objeto(s)`);
     return;
@@ -77,5 +79,13 @@ export async function deleteObjects(keys: string[]): Promise<void> {
   } catch (err) {
     // No frenar el flujo por un objeto huérfano; se limpia con job (F4).
     console.error("[r2] error borrando objetos:", err);
+  }
+}
+
+export async function verifyUploadedObject(key: string) {
+  if (config.STORAGE_DRIVER === "local") {
+    try { await assertLocalObject(key); } catch {
+      throw new ApiError("VALIDATION_ERROR", "La imagen no fue subida correctamente.");
+    }
   }
 }

@@ -1,5 +1,6 @@
+import { config } from "../src/config.js";
 import request from "supertest";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { adminDb, DB_AVAILABLE, seedSuperAdmin, seedTenantWithUsers,
   TEST_PASSWORD, truncateAll } from "./helpers.js";
@@ -32,6 +33,22 @@ describe.runIf(DB_AVAILABLE)("Alta y sitio público por inmobiliaria", () => {
     bSlug = propertyB.slug;
   });
 
+  it("guarda el modo de web por tenant sin publicar", async () => {
+    const response = await adminA.patch("/v1/tenants/current").set("x-csrf-token", csrfA)
+      .send({ website_mode: "custom" });
+    expect(response.status).toBe(200);
+    expect(response.body.tenant.configSitio.website_mode).toBe("custom");
+    expect(response.body.tenant.sitePublished).toBe(false);
+    const other = await adminDb().tenant.findUniqueOrThrow({ where: { id: b.tenant.id } });
+    expect(other.configSitio ?? {}).not.toHaveProperty("website_mode", "custom");
+    expect((await adminA.patch("/v1/tenants/current").set("x-csrf-token", csrfA)
+      .send({ website_mode: "invalid" })).status).toBe(400);
+    const agent = request.agent(app);
+    const login = await agent.post("/v1/auth/login").send({ email: a.agente.email, password: TEST_PASSWORD });
+    expect((await agent.patch("/v1/tenants/current").set("x-csrf-token", login.body.csrf_token)
+      .send({ website_mode: "managed" })).status).toBe(403);
+  });
+
   it("super admin registra un tenant e invita al primer admin", async () => {
     const operator = request.agent(app);
     const login = await operator.post("/v1/auth/login").send({ email: "super@test.test",
@@ -56,6 +73,21 @@ describe.runIf(DB_AVAILABLE)("Alta y sitio público por inmobiliaria", () => {
       nombre: "Admin Nueva", password: TEST_PASSWORD });
     expect(accepted.status).toBe(201);
     expect(accepted.body.user.tenant.slug).toBe("nueva-inmo");
+  });
+
+  it("Resend rechazado revierte el alta y no expone un enlace de desarrollo", async () => {
+    const original = config.RESEND_API_KEY;
+    const operator = request.agent(app);
+    const login = await operator.post("/v1/auth/login").send({ email: "super@test.test", password: TEST_PASSWORD });
+    config.RESEND_API_KEY = "test-only";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("rejected", { status: 403 })));
+    try {
+      const response = await operator.post("/v1/tenants").set("x-csrf-token", login.body.csrf_token)
+        .send({ nombre: "Correo fallido", slug: "correo-fallido", admin_email: "correo@example.test" });
+      expect(response.status).toBe(500);
+      expect(response.body.dev_invitation_url).toBeUndefined();
+      expect(await adminDb().tenant.findUnique({ where: { slug: "correo-fallido" } })).toBeNull();
+    } finally { config.RESEND_API_KEY = original; vi.unstubAllGlobals(); }
   });
 
   it("un sitio empieza oculto y exige descripción antes de publicar", async () => {

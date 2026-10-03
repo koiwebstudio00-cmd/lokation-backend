@@ -1,8 +1,8 @@
 {
-  "name": "ubikka-backend",
+  "name": "lokation-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Backend API de Ubikka",
+  "description": "Backend API de Lokation",
   "type": "module",
   "engines": {
     "node": ">=22"

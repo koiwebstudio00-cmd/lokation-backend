@@ -1,3 +1,4 @@
+import { mailConfigured } from "../../lib/mailer.js";
 import { ApiError } from "../../lib/errors.js";
 import { config } from "../../config.js";
 import { invitationEmail, resetEmail, sendMail } from "../../lib/mailer.js";
@@ -245,13 +246,13 @@ export async function createInvitation(
     }
   });
   const delivered = await sendMail(invitationEmail(data.email, token, tenantNombre));
-  if (config.SMTP_HOST && !delivered) {
+  if (mailConfigured() && !delivered) {
     throw new ApiError("INTERNAL", "No pudimos enviar la invitación. Probá de nuevo.");
   }
   return {
     ...inv,
     // En desarrollo sin SMTP, el operador necesita entregar el enlace de alta.
-    devInvitationUrl: config.NODE_ENV !== "production" && !config.SMTP_HOST
+    devInvitationUrl: config.NODE_ENV !== "production" && !mailConfigured()
       ? `${config.FRONT_URL}/aceptar-invitacion?token=${token}`
       : undefined
   };

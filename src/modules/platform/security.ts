@@ -31,7 +31,7 @@ function decrypt(value: string) {
   return Buffer.concat([decipher.update(data.subarray(12, -16)), decipher.final()]).toString("utf8");
 }
 function totp(secret: string, email = "") {
-  return new OTPAuth.TOTP({ issuer: "Ubikka", label: email, algorithm: "SHA1", digits: 6, period: 30, secret });
+  return new OTPAuth.TOTP({ issuer: "Lokation", label: email, algorithm: "SHA1", digits: 6, period: 30, secret });
 }
 export async function audit(tx: Tx, actorId: string, action: string, targetId = actorId) {
   await tx.platformAudit.createMany({ data: { actorId, action, targetId } });
@@ -139,7 +139,7 @@ export async function registrationOptions(userId: string, password: string, otp?
     const user = await verifyOwner(tx, userId, password, otp);
     const keys = await tx.passkey.findMany({ where: { userId } });
     if (keys.length >= 10) throw new ApiError("LIMIT_EXCEEDED", "Podés registrar hasta 10 passkeys.");
-    const options = await generateRegistrationOptions({ rpName: "Ubikka", rpID, userName: user.email,
+    const options = await generateRegistrationOptions({ rpName: "Lokation", rpID, userName: user.email,
       userDisplayName: user.nombre, userID: new Uint8Array(Buffer.from(user.id)), attestationType: "none",
       excludeCredentials: keys.map((key) => ({ id: key.id })),
       authenticatorSelection: { residentKey: "required", userVerification: "required" } });

@@ -25,6 +25,7 @@ const idParam = () => z.string().uuid();
 
 // ── Alta pública (formulario web del sitio del cliente) ──────────────────────
 const publicLeadSchema = z.object({
+  property_slug: z.string().regex(/^[a-z0-9-]{1,200}$/).optional(),
   property_id: z.string().uuid().optional(),
   nombre: z.string().trim().min(1, "El nombre es obligatorio.").max(200),
   email: z.string().email().optional(),
@@ -39,6 +40,7 @@ crmRoutes.post("/public/:tenant_slug/leads", publicLimiter, async (req, res) => 
   const body = publicLeadSchema.parse(req.body);
   const lead = await crm.createPublicLead(slug, {
     propertyId: body.property_id,
+    propertySlug: body.property_slug,
     nombre: body.nombre,
     email: body.email,
     telefono: body.telefono,

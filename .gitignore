@@ -9,3 +9,6 @@ coverage/
 
 # Configuración local de Claude Code
 .claude/
+
+# Archivos locales persistentes, nunca versionar
+/storage/

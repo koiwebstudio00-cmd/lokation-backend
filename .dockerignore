@@ -25,3 +25,8 @@ CLAUDE.md
 AGENTS.md
 eslint.config.mjs
 vitest.config.ts
+
+# Archivos subidos y configuración de despliegue fuera de la imagen
+storage
+compose.production.yml
+deploy

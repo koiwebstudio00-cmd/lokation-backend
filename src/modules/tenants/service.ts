@@ -28,7 +28,7 @@ export async function createTenant(
     const slugTaken = await tx.tenant.findUnique({ where: { slug: data.slug } });
     if (slugTaken) throw new ApiError("CONFLICT", "Ese slug ya está en uso.");
     const userTaken = await tx.user.findUnique({ where: { email: data.adminEmail } });
-    if (userTaken) throw new ApiError("CONFLICT", "Ese email ya tiene una cuenta en Ubikka.");
+    if (userTaken) throw new ApiError("CONFLICT", "Ese email ya tiene una cuenta en Lokation.");
     const pendingInvitation = await tx.invitation.findFirst({ where: {
       email: data.adminEmail, acceptedAt: null, expiresAt: { gt: new Date() }
     } });
@@ -80,6 +80,7 @@ export async function updateCurrentTenant(
     nombre?: string;
     configSitio?: { descripcion: string; telefono?: string; email?: string; direccion?: string; ciudad?: string; imagen_portada_url?: string; lema?: string; color_primario?: string };
     sitePublished?: boolean;
+    websiteMode?: "managed" | "custom";
     agentConfig?: { model: string; instructions: string };
     agentEnabled?: boolean;
     followupEnabled?: boolean;
@@ -96,8 +97,8 @@ export async function updateCurrentTenant(
       select: { configSitio: true, estado: true } });
     const previousConfig = current.configSitio && typeof current.configSitio === "object" &&
       !Array.isArray(current.configSitio) ? current.configSitio as Record<string, unknown> : {};
-    const siteConfig = data.configSitio !== undefined
-      ? { ...previousConfig, ...data.configSitio }
+    const siteConfig = data.configSitio !== undefined || data.websiteMode !== undefined
+      ? { ...previousConfig, ...data.configSitio, ...(data.websiteMode ? { website_mode: data.websiteMode } : {}) }
       : undefined;
     if (data.sitePublished === true) {
       const site = siteConfig ?? current.configSitio;

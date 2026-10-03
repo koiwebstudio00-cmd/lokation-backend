@@ -1,6 +1,6 @@
 import { ApiError } from "../../lib/errors.js";
 import { runWithContext, type Tx } from "../../lib/prisma.js";
-import { deleteObjects, newImageKey, presignUpload, publicUrl } from "../../lib/r2.js";
+import { deleteObjects, newImageKey, presignUpload, publicUrl, verifyUploadedObject } from "../../lib/r2.js";
 import type { AccessClaims } from "../../lib/tokens.js";
 
 const MAX_FOTOS = 20;
@@ -65,6 +65,7 @@ export async function confirm(auth: AccessClaims, propertyId: string, r2Keys: st
     let orden = (maxOrden._max.orden ?? -1) + 1;
 
     const created = [];
+    for (const key of r2Keys) await verifyUploadedObject(key);
     for (const [i, r2Key] of r2Keys.entries()) {
       created.push(
         await tx.propertyImage.create({

@@ -52,7 +52,7 @@ COPY --from=builder /app/prisma ./prisma
 COPY package.json ./
 COPY docker-entrypoint.sh ./
 
-RUN chmod +x docker-entrypoint.sh && chown -R node:node /app
+RUN mkdir -p /app/storage && chmod +x docker-entrypoint.sh && chown -R node:node /app
 # La imagen de node ya trae el usuario `node` sin privilegios.
 USER node
 

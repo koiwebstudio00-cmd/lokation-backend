@@ -21,13 +21,14 @@ const envSchema = z.object({
   // directamente no manda la cookie de sesión y el login no funciona.
   // 'none' exige COOKIE_SECURE=true, si no el navegador la descarta.
   COOKIE_SAMESITE: z.enum(["lax", "none", "strict"]).default("lax"),
-  // Para compartir la cookie entre subdominios del dominio de Ubikka.
+  // Para compartir la cookie entre subdominios del dominio de Lokation.
   // Vacío = solo el host que la emitió.
   COOKIE_DOMAIN: z.string().optional(),
   // URL del panel: los links de los emails (invitación/reset) apuntan ahí.
   // El panel corre en 3000 y la API en 3001, así que el default NO es PORT.
   FRONT_URL: z.string().default("http://localhost:3000"),
-  // SMTP (nodemailer). Sin SMTP_HOST, los emails se loggean a consola (dev).
+  // Resend tiene prioridad sobre SMTP. Sin proveedor, desarrollo omite envíos.
+  RESEND_API_KEY: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(587),
   SMTP_USER: z.string().optional(),
@@ -35,6 +36,9 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().default("Plataforma <no-reply@localhost>"),
   // Cloudflare R2 (S3-compatible). Sin credenciales, presign/delete quedan en
   // modo stub local (dev/test sin R2 real).
+  STORAGE_DRIVER: z.enum(["r2", "local"]).default("r2"),
+  LOCAL_STORAGE_DIR: z.string().default("./storage"),
+  LOCAL_STORAGE_URL: z.string().url().default("http://localhost:3001/media").transform((value) => value.replace(/\/$/, "")),
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
@@ -64,7 +68,7 @@ const envSchema = z.object({
   AGENT_SERVICE_SECRET: z.string().optional(),
   AGENT_CODE_TENANT_IDS: z.string().default(""),
   // ── Zernio (canales de mensajería) ──────────────────────────────────────────
-  // Una sola key para el team de Zernio de Ubikka; nunca se expone al panel.
+  // Una sola key para el team de Zernio de Lokation; nunca se expone al panel.
   ZERNIO_API_KEY: z.string().optional(),
   // Verifica X-Zernio-Signature en /webhooks/zernio. Sin ella, el endpoint
   // rechaza todo (falla cerrado: mejor no recibir mensajes que aceptarlos sin
@@ -74,7 +78,7 @@ const envSchema = z.object({
   // ambiente). Sin barra final.
   ZERNIO_REDIRECT_BASE_URL: z.string().default("http://localhost:3000"),
   // Webhook histórico de n8n para tenants fuera del piloto en código.
-  // Producción Ubikka no permite configurarlo.
+  // Producción Lokation no permite configurarlo.
   N8N_WHATSAPP_WEBHOOK_URL: z.string().optional(),
   // Ventana de agrupado de ráfagas del worker de Zernio. Zernio manda un
   // webhook por mensaje; se espera este silencio antes de despachar la
@@ -96,6 +100,9 @@ if (config.AGENT_CODE_TENANT_IDS.trim()) {
 }
 
 if (config.NODE_ENV === "production") {
+  if (config.STORAGE_DRIVER === "local" && (!config.LOCAL_STORAGE_DIR.startsWith("/") || !config.LOCAL_STORAGE_URL.startsWith("https://"))) {
+    throw new Error("Almacenamiento local requiere LOCAL_STORAGE_DIR absoluto y LOCAL_STORAGE_URL HTTPS en producción.");
+  }
   if (!config.SUPER_ADMIN_URL.startsWith("https://")) throw new Error("SUPER_ADMIN_URL debe usar HTTPS en producción.");
   if (!config.JWT_SECRET) {
     throw new Error("JWT_SECRET es obligatorio en producción (openssl rand -hex 32).");
@@ -112,14 +119,14 @@ if (config.NODE_ENV === "production") {
   if (!config.COOKIE_SECURE) {
     throw new Error("COOKIE_SECURE debe ser 'true' en producción (las cookies viajan por HTTPS).");
   }
-  if (!config.SMTP_HOST || config.EMAIL_FROM.includes("@localhost")) {
-    throw new Error("SMTP_HOST y EMAIL_FROM propio son obligatorios en producción.");
+  if ((!config.RESEND_API_KEY && !config.SMTP_HOST) || config.EMAIL_FROM.includes("@localhost")) {
+    throw new Error("RESEND_API_KEY (o SMTP_HOST) y EMAIL_FROM propio son obligatorios en producción.");
   }
   if (!config.FRONT_URL.startsWith("https://")) {
     throw new Error("FRONT_URL debe usar HTTPS en producción para los enlaces de acceso.");
   }
   if (config.N8N_WHATSAPP_WEBHOOK_URL) {
-    throw new Error("El workflow n8n heredado no puede usarse en producción de Ubikka.");
+    throw new Error("El workflow n8n heredado no puede usarse en producción de Lokation.");
   }
 }
 

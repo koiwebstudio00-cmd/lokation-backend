@@ -277,6 +277,7 @@ model Tenant {
   zernioProfileId       String?      @map("zernio_profile_id")
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  notifications       Notification[]
   users               User[]
   invitations         Invitation[]
   properties          Property[]
@@ -306,6 +307,7 @@ model User {
   authVersion  Int        @default(0) @map("auth_version")
   googleSubject String? @unique @map("google_subject")
   deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  notifications Notification[]
   security     UserSecurity?
   passkeys     Passkey[]
   rol          UserRol
@@ -850,4 +852,19 @@ model PlatformAudit {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   @@index([targetId, createdAt])
   @@map("platform_audit")
+}
+
+model Notification {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @map("tenant_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  title String
+  body String
+  href String
+  readAt DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt(sort: Desc), id])
+  @@map("notifications")
 }

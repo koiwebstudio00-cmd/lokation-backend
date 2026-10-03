@@ -83,17 +83,18 @@ export async function createPublicLead(
   tenantSlug: string,
   data: {
     propertyId?: string;
+    propertySlug?: string;
     nombre: string;
     email?: string;
     telefono?: string;
     mensaje: string;
   }
 ) {
-  const tenant: { id: string; estado: string } | null = await runWithContext(
+  const tenant: { id: string; estado: string; sitePublished: boolean } | null = await runWithContext(
     AUTH_CTX,
     (tx) => tx.tenant.findUnique({ where: { slug: tenantSlug } })
   );
-  if (!tenant || tenant.estado !== "activo") {
+  if (!tenant || tenant.estado !== "activo" || (data.propertySlug && !tenant.sitePublished)) {
     throw new ApiError("NOT_FOUND", "El recurso no existe.");
   }
 
@@ -106,9 +107,11 @@ export async function createPublicLead(
       // Si viene con propiedad, debe ser del tenant; se asigna al agente creador.
       let assignedTo: string | null = null;
       let propertyId: string | null = null;
-      if (data.propertyId) {
+      if (data.propertyId || data.propertySlug) {
         const property = await tx.property.findFirst({
-          where: { id: data.propertyId, tenantId: tenant.id }
+          where: { tenantId: tenant.id, ...(data.propertySlug
+            ? { slug: data.propertySlug, estado: "disponible" as const, ...(data.propertyId ? { id: data.propertyId } : {}) }
+            : { id: data.propertyId }) }
         });
         if (!property) throw new ApiError("NOT_FOUND", "El recurso no existe.");
         propertyId = property.id;

@@ -5,7 +5,7 @@
 import { ApiError } from "../../lib/errors.js";
 import { sendMail } from "../../lib/mailer.js";
 import { runWithContext, type Tx } from "../../lib/prisma.js";
-import { deleteObjects, newAttachmentKey, presignUpload, publicUrl } from "../../lib/r2.js";
+import { deleteObjects, newAttachmentKey, presignUpload, publicUrl, verifyUploadedObject } from "../../lib/r2.js";
 import type { AccessClaims } from "../../lib/tokens.js";
 import { config } from "../../config.js";
 
@@ -260,6 +260,7 @@ export async function confirmAdjuntos(auth: AccessClaims, feedbackId: string, r2
     let orden = (maxOrden._max.orden ?? -1) + 1;
 
     const created = [];
+    for (const key of r2Keys) await verifyUploadedObject(key);
     for (const r2Key of r2Keys) {
       created.push(
         await tx.feedbackAdjunto.create({

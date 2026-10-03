@@ -7,6 +7,10 @@ export interface Mail {
   text: string;
 }
 
+export function mailConfigured(): boolean {
+  return Boolean(config.RESEND_API_KEY || config.SMTP_HOST);
+}
+
 let _transporter: Transporter | null = null;
 
 function transporter(): Transporter | null {
@@ -23,23 +27,31 @@ function transporter(): Transporter | null {
   return _transporter;
 }
 
-/**
- * Envío por SMTP (nodemailer) si hay SMTP_HOST; si no (dev), omite el envío.
- * Devuelve si SMTP entregó el mensaje; el flujo de invitaciones exige éxito.
- */
+/** true significa que el proveedor aceptó el envío, no que llegó a la bandeja. */
 export async function sendMail(mail: Mail): Promise<boolean> {
-  const t = transporter();
-  if (!t) {
-    // El cuerpo puede contener tokens de acceso, contraseñas y datos de leads.
-    console.info("[mail-dev] envío omitido: configurar SMTP_HOST para probar correos.");
-    return false;
-  }
   try {
+    if (config.RESEND_API_KEY) {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${config.RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: config.EMAIL_FROM, ...mail }),
+        signal: AbortSignal.timeout(4000)
+      });
+      if (!response.ok) throw new Error("Resend rejected request");
+      const data = await response.json() as { id?: string };
+      if (!data.id) throw new Error("Missing message id");
+      return true;
+    }
+    const t = transporter();
+    if (!t) {
+      console.info("[mail-dev] envío omitido: configurar RESEND_API_KEY y EMAIL_FROM.");
+      return false;
+    }
     await t.sendMail({ from: config.EMAIL_FROM, ...mail });
     return true;
   } catch {
-    // Los errores SMTP pueden incluir direcciones y fragmentos del mensaje.
-    console.error("[mail] fallo de envío SMTP");
+    // No registrar tokens, destinatarios ni respuestas del proveedor.
+    console.error("[mail] el proveedor no confirmó el envío");
     return false;
   }
 }
