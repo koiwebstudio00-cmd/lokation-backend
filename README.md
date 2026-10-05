@@ -1,4 +1,7 @@
-# Ubikka · backend
+# Lokation · backend
+
+> Identidad vigente (2026-10-04): **Lokation es la plataforma SaaS. Ubikka es una inmobiliaria registrada**, con web propia en ubikka-site, separada del template web-publica. [Estado actual](../docs/ESTADO_ACTUAL.md) y [backlog](../docs/FEATURES_FUTURAS.md) pertenecen al repositorio de documentacion y requieren el workspace completo para estos enlaces relativos.
+
 
 API y workers de Ubikka. Este repositorio Git local se creó a partir del estado de trabajo de un prototipo técnico y no tiene remoto configurado.
 
