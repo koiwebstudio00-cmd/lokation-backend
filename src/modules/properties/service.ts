@@ -79,7 +79,7 @@ export async function listProperties(auth: AccessClaims, f: PropertyFilters) {
       tx.property.findMany({
         where,
         include: LIST_INCLUDE,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (f.page - 1) * f.limit,
         take: f.limit
       }),
@@ -106,7 +106,7 @@ export async function myProperties(auth: AccessClaims, f: PropertyFilters) {
       tx.property.findMany({
         where,
         include: LIST_INCLUDE,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (f.page - 1) * f.limit,
         take: f.limit
       }),

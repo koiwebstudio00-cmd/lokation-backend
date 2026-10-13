@@ -222,7 +222,7 @@ export async function listLeads(auth: AccessClaims, f: LeadFilters) {
             }
           }
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (f.page - 1) * f.limit,
         take: f.limit
       }),
@@ -288,6 +288,11 @@ export async function getLead(auth: AccessClaims, id: string) {
         notes: {
           orderBy: { createdAt: "desc" },
           include: { user: { select: { id: true, nombre: true } } }
+        },
+        statusHistory: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 20,
+          include: { actor: { select: { id: true, nombre: true } } }
         },
         // Igual que en listLeads: una derivación pendiente, aplanada para el panel.
         conversations: {
@@ -379,21 +384,56 @@ export async function updateLead(
     if (data.assignedTo !== undefined && auth.rol !== "admin") {
       throw new ApiError("FORBIDDEN", "Solo un admin puede reasignar consultas.");
     }
-    if (auth.rol === "agente") {
-      const current = await tx.lead.findUnique({ where: { id }, select: { assignedTo: true } });
-      if (!current) throw new ApiError("NOT_FOUND", "El recurso no existe.");
-      if (current.assignedTo !== auth.userId) {
-        throw new ApiError("FORBIDDEN", "La consulta no está asignada a tu usuario.");
-      }
+    const current = await tx.lead.findUnique({ where: { id } });
+    if (!current) throw new ApiError("NOT_FOUND", "El recurso no existe.");
+    if (auth.rol === "agente" && current.assignedTo !== auth.userId) {
+      throw new ApiError("FORBIDDEN", "La consulta no está asignada a tu usuario.");
     }
-    const { count } = await tx.lead.updateMany({ where: { id }, data });
-    if (count === 0) throw new ApiError("NOT_FOUND", "El recurso no existe.");
+    if (data.estado === "ganada" || data.estado === "perdida") {
+      throw new ApiError("VALIDATION_ERROR", "Para cerrar la consulta, indicá el resultado y sus detalles.");
+    }
+    const { count } = await tx.lead.updateMany({ where: { id, estado: current.estado }, data });
+    if (count === 0) throw new ApiError("CONFLICT", "La consulta cambió mientras la editabas. Actualizá la página.");
+    if (data.estado && data.estado !== current.estado) {
+      await tx.leadStatusHistory.create({ data: {
+        tenantId: auth.tenantId!, leadId: id, actorId: auth.userId,
+        fromState: current.estado, toState: data.estado
+      } });
+    }
     // Una clasificación manual como fantasma significa que una persona ya
     // intentó contactarlo. Se silencia a Agente IA y se cancelan los vencimientos,
     // pero no se crea una asignación automática ni se cambia el vendedor.
     if (data.clasificacion === "fantasma") {
       await repo.silenceConversationForManualGhost(tx, id);
     }
+    const lead = (await tx.lead.findUnique({ where: { id } }))!;
+    await emitEvent(tx, "lead.updated", leadPayload(lead));
+    return lead;
+  });
+}
+
+export type CloseLeadInput =
+  | { resultado: "ganada"; operacion: "venta" | "alquiler"; nota?: string }
+  | { resultado: "perdida"; motivo: "no_califica" | "sin_respuesta" | "sin_interes" | "presupuesto" | "eligio_otra" | "otro"; nota?: string };
+
+export async function closeLead(auth: AccessClaims, id: string, input: CloseLeadInput) {
+  return runWithContext(ctxOf(auth), async (tx) => {
+    const current = await tx.lead.findUnique({ where: { id } });
+    if (!current) throw new ApiError("NOT_FOUND", "El recurso no existe.");
+    if (auth.rol === "agente" && current.assignedTo !== auth.userId) {
+      throw new ApiError("FORBIDDEN", "La consulta no está asignada a tu usuario.");
+    }
+    const { count } = await tx.lead.updateMany({
+      where: { id, estado: current.estado }, data: { estado: input.resultado }
+    });
+    if (count === 0) throw new ApiError("CONFLICT", "La consulta cambió mientras la cerrabas. Actualizá la página.");
+    await tx.leadStatusHistory.create({ data: {
+      tenantId: auth.tenantId!, leadId: id, actorId: auth.userId,
+      fromState: current.estado, toState: input.resultado,
+      operation: input.resultado === "ganada" ? input.operacion : null,
+      reason: input.resultado === "perdida" ? input.motivo : null,
+      note: input.nota || null
+    } });
     const lead = (await tx.lead.findUnique({ where: { id } }))!;
     await emitEvent(tx, "lead.updated", leadPayload(lead));
     return lead;

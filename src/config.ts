@@ -44,6 +44,9 @@ const envSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().default("property-images-dev"),
   R2_PUBLIC_URL: z.string().optional(),
+  // Borradores de fichas: credencial exclusiva del servidor, nunca del panel.
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_PROPERTY_MODEL: z.string().default("gpt-5-mini"),
   // ── Agente de IA ───────────────────────────────────────────────────────────
   // Minutos HÁBILES que espera un handoff antes de reasignarse. La toma puede
   // registrarse desde el panel o desde un message.sent originado en WhatsApp

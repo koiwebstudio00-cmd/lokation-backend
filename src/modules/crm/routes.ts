@@ -152,6 +152,24 @@ crmRoutes.patch("/leads/:id", async (req, res) => {
   res.json({ lead });
 });
 
+const closeSchema = z.discriminatedUnion("resultado", [
+  z.object({
+    resultado: z.literal("ganada"),
+    operacion: z.enum(["venta", "alquiler"]),
+    nota: z.string().trim().max(1000).optional()
+  }).strict(),
+  z.object({
+    resultado: z.literal("perdida"),
+    motivo: z.enum(["no_califica", "sin_respuesta", "sin_interes", "presupuesto", "eligio_otra", "otro"]),
+    nota: z.string().trim().max(1000).optional()
+  }).strict()
+]);
+
+crmRoutes.post("/leads/:id/close", async (req, res) => {
+  const id = idParam().parse(req.params.id);
+  res.json({ lead: await crm.closeLead(req.auth!, id, closeSchema.parse(req.body)) });
+});
+
 // Borrar una consulta. Solo admin (la policy RLS `leads_delete` ya lo exige; el
 // requireRole es fail-fast). El cascade del esquema limpia notas, conversación,
 // mensajes y handoffs.

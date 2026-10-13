@@ -21,6 +21,7 @@
     "test:prepare": "tsx scripts/migrate-test.ts",
     "pilot:openai": "node --import tsx scripts/pilot-openai.mjs",
     "seed": "tsx prisma/seed.ts",
+    "seed:verify": "tsx scripts/verify-demo.ts",
     "migrate:supabase": "tsx scripts/migrate-supabase.ts",
     "admin": "tsx scripts/admin-cli.ts",
     "zernio-adopt": "node dist/ops/zernio-adopt.js"

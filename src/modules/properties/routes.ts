@@ -1,5 +1,8 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
+import { config } from "../../config.js";
+import { ApiError } from "../../lib/errors.js";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import {
   TIPOS,
@@ -12,6 +15,7 @@ import {
   AMOBLADO
 } from "../../lib/property-opciones.js";
 import * as props from "./service.js";
+import { copyDraftInput, generateCopyDraft } from "./copy-draft.js";
 
 export const propertyRoutes = Router();
 
@@ -90,6 +94,21 @@ propertyRoutes.post("/properties", async (req, res) => {
 
 propertyRoutes.get("/properties/locations", async (req, res) => {
   res.json(await props.propertyLocations(req.auth!));
+});
+
+const draftLimiter = config.NODE_ENV === "test"
+  ? (_req: Parameters<typeof requireAuth>[0], _res: Parameters<typeof requireAuth>[1], next: Parameters<typeof requireAuth>[2]) => next()
+  : rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: true, legacyHeaders: false,
+      keyGenerator: (req) => req.auth?.userId ?? "sin-usuario" });
+
+propertyRoutes.post("/properties/copy-draft", draftLimiter, async (req, res) => {
+  const input = copyDraftInput.parse(req.body);
+  const { tenantId, userId, rol } = req.auth!;
+  if (!tenantId || (rol !== "admin" && rol !== "agente")) {
+    throw new ApiError("FORBIDDEN", "Esta acción requiere una inmobiliaria.");
+  }
+  res.set("Cache-Control", "private, no-store");
+  res.json({ draft: await generateCopyDraft(input, { tenantId, userId, rol }) });
 });
 
 propertyRoutes.get("/properties/:id", async (req, res) => {

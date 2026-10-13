@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import * as analytics from "./service.js";
+import { propertyCopyUsage } from "./property-copy-usage.js";
 
 export const analyticsRoutes = Router();
 
@@ -132,4 +133,9 @@ analyticsRoutes.get("/analytics/sofia", async (req, res) => {
 
 analyticsRoutes.get("/analytics/properties", async (req, res) => {
   res.json(await analytics.properties(req.auth!, parseFilters(req.query)));
+});
+
+analyticsRoutes.get("/analytics/property-copy-usage", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  res.json(await propertyCopyUsage(req.auth!));
 });

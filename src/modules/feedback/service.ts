@@ -57,7 +57,7 @@ export async function listFeedback(auth: AccessClaims, f: FeedbackFilters) {
       tx.feedbackItem.findMany({
         where,
         include: ITEM_INCLUDE,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (f.page - 1) * f.limit,
         take: f.limit
       }),

@@ -1,13 +1,19 @@
 # Lokation · backend
 
-> Identidad vigente (2026-10-04): **Lokation es la plataforma SaaS. Ubikka es una inmobiliaria registrada**, con web propia en ubikka-site, separada del template web-publica. [Estado actual](../docs/ESTADO_ACTUAL.md) y [backlog](../docs/FEATURES_FUTURAS.md) pertenecen al repositorio de documentacion y requieren el workspace completo para estos enlaces relativos.
+> Identidad vigente: **Lokation es la plataforma SaaS. Ubikka es una inmobiliaria registrada**, con web propia en ubikka-site, separada del template web-publica. [Estado actual](../docs/ESTADO_ACTUAL.md) y [backlog](../docs/FEATURES_FUTURAS.md) pertenecen al repositorio de documentación y requieren el workspace completo para estos enlaces relativos.
 
 
-API y workers de Ubikka. Este repositorio Git local se creó a partir del estado de trabajo de un prototipo técnico y no tiene remoto configurado.
+API y workers de Lokation. Este repositorio Git local se creó a partir del estado de trabajo de un prototipo técnico; el remoto actual es `lokation-backend`.
 
 Node/Express, Prisma y PostgreSQL. Mantener el aislamiento con tenant_id y RLS, y agregar pruebas con dos tenants cuando cambien permisos. Las migraciones existentes y los contratos HTTP son la base técnica; cualquier referencia a marca, dominios o políticas comerciales del prototipo es heredada.
 
 El `docker-compose.yml` usa el nombre de proyecto `ubikka` y publica PostgreSQL en `localhost:5433`, separado de otros proyectos llamados `backend`. Para preparar datos ficticios locales: `docker compose up -d --wait db`, `npm run db:migrate:deploy` y `npm run seed`.
+
+## Evolución local de alquileres · 2026-10-13
+
+La API incluye personas de alquiler, borradores y ciclo de vida de contratos, cuentas de servicios, mantenimiento, cargos mensuales, cobros parciales con reversos y resumen de cartera. El aislamiento por inmobiliaria usa RLS; los perfiles externos aún no tienen acceso a estas rutas. `npm run seed:verify` comprueba los escenarios ficticios de `demo-a` y `demo-b` y el aislamiento en `localhost:5433/ubikka_dev`.
+
+También se incorporaron borradores revisables de texto de propiedades con IA y medición de uso, orden estable de listados, y cierre de consultas con historial. La configuración de IA está en `.env.example`; la clave se guarda sólo en el backend. Consultar el [plan de evolución](../docs/PLAN_EVOLUCION_LOKATION_2026-10.md) y el [recorrido local](../docs/RECORRIDO_DOS_TENANTS.md). No hay transferencias bancarias ni liquidaciones al propietario persistidas.
 
 El documento [README.legacy.md](README.legacy.md) y los documentos importados describen el prototipo original y se conservan solo como referencia técnica. Plan vigente: [PLAN_IMPLEMENTACION.md](../docs/PLAN_IMPLEMENTACION.md).
 
