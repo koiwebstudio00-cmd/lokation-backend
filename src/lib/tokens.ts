@@ -13,7 +13,7 @@ export interface AccessClaims {
   tenantId?: string;
   authVersion?: number;
   userAuthVersion?: number;
-  rol: Exclude<Rol, "public" | "auth">;
+  rol: Exclude<Rol, "public" | "auth" | "portal">;
 }
 
 export async function signAccessToken(claims: AccessClaims): Promise<string> {

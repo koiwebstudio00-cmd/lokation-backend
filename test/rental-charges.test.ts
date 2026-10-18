@@ -111,4 +111,61 @@ describe.runIf(DB_AVAILABLE)("Cargos y cobros manuales", () => {
     expect(other.body.balances).toEqual([]);
     expect((await agentA.get("/v1/rental-overview")).status).toBe(403);
   });
+
+  it("aplica ajustes futuros y registra liquidación y pago manual al propietario", async () => {
+    const chargesPath = `/v1/rental-contracts/${contractA}/charges`;
+    const feb = await adminA.post(chargesPath).set("x-csrf-token", csrfA).send({ period: "2026-02" });
+    expect(feb.status).toBe(201);
+    expect(feb.body.charge.amount).toBe("400000.25");
+    const adjustmentPath = `/v1/rental-contracts/${contractA}/adjustments`;
+    const adjustment = await adminA.post(adjustmentPath).set("x-csrf-token", csrfA).send({
+      effective_period: "2026-03", amount: "450000.50", reason: "Ajuste acordado en contrato"
+    });
+    expect(adjustment.status).toBe(201);
+    expect((await adminA.post(adjustmentPath).set("x-csrf-token", csrfA).send({
+      effective_period: "2026-02", amount: "430000", reason: "Retroactivo no permitido"
+    })).status).toBe(409);
+    expect(Number((await adminA.post(chargesPath).set("x-csrf-token", csrfA).send({ period: "2026-03" }))
+      .body.charge.amount)).toBe(450000.5);
+    const settlementPath = `/v1/rental-charges/${feb.body.charge.id}/settlements`;
+    expect((await adminA.post(settlementPath).set("x-csrf-token", csrfA)
+      .send({ commission: "10000", expenses: "5000" })).status).toBe(409);
+    const paid = await adminA.post(`/v1/rental-charges/${feb.body.charge.id}/payments`)
+      .set("x-csrf-token", csrfA).send({ idempotency_key: randomUUID(), amount: "400000.25",
+        paid_at: "2026-02-20", method: "transferencia" });
+    expect(paid.status).toBe(201);
+    const settlement = await adminA.post(settlementPath).set("x-csrf-token", csrfA)
+      .send({ commission: "10000", expenses: "5000", note: "Liquidación de febrero" });
+    expect(settlement.status).toBe(201);
+    expect(settlement.body.settlement.net).toBe("385000.25");
+    expect((await adminA.post(`/v1/rental-payments/${paid.body.payment.id}/void`).set("x-csrf-token", csrfA)
+      .send({ reason: "Intento posterior" })).status).toBe(409);
+    expect((await adminA.post(settlementPath).set("x-csrf-token", csrfA)
+      .send({ commission: "0", expenses: "0" })).status).toBe(409);
+    const settlementId = settlement.body.settlement.id;
+    const marked = await adminA.post(`/v1/rental-settlements/${settlementId}/paid`).set("x-csrf-token", csrfA)
+      .send({ paid_at: "2026-02-22", payment_method: "transferencia", payment_reference: "DUENO-001" });
+    expect(marked.status).toBe(200);
+    expect(marked.body.settlement.status).toBe("pagada");
+    expect((await adminA.post(`/v1/rental-settlements/${settlementId}/cancel`).set("x-csrf-token", csrfA)
+      .send({ reason: "No se permite" })).status).toBe(409);
+    const marchCharge = (await adminA.get(chargesPath)).body.data.find((item: { period: string }) =>
+      item.period.startsWith("2026-03"));
+    const marchPayment = await adminA.post(`/v1/rental-charges/${marchCharge.id}/payments`)
+      .set("x-csrf-token", csrfA).send({ idempotency_key: randomUUID(), amount: "450000.50",
+        paid_at: "2026-03-20", method: "transferencia" });
+    expect(marchPayment.status).toBe(201);
+    const marchSettlementPath = `/v1/rental-charges/${marchCharge.id}/settlements`;
+    const prepared = await adminA.post(marchSettlementPath).set("x-csrf-token", csrfA)
+      .send({ commission: "0", expenses: "0" });
+    expect(prepared.status).toBe(201);
+    const cancelled = await adminA.post(`/v1/rental-settlements/${prepared.body.settlement.id}/cancel`)
+      .set("x-csrf-token", csrfA).send({ reason: "Corrección de liquidación" });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.settlement.status).toBe("cancelada");
+    expect((await adminA.post(marchSettlementPath).set("x-csrf-token", csrfA)
+      .send({ commission: "5000", expenses: "0" })).status).toBe(201);
+    expect((await adminB.get(`/v1/rental-contracts/${contractA}/settlements`)).status).toBe(404);
+    expect((await agentA.get(adjustmentPath)).status).toBe(403);
+  });
 });

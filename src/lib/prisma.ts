@@ -15,7 +15,8 @@ export type Rol =
   | "auth"
   | "worker"
   | "export"
-  | "agent";
+  | "agent"
+  | "portal";
 
 export interface RlsContext {
   userId?: string;

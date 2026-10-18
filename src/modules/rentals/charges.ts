@@ -76,11 +76,14 @@ rentalChargeRoutes.post("/rental-contracts/:id/charges", async (req, res) => {
       contractId_period_concept: { contractId: id, period: first, concept: "alquiler" }
     } });
     if (existing) return { charge: existing, created: false };
+    const adjustment = await tx.rentalAdjustment.findFirst({ where: {
+      contractId: id, effectivePeriod: { lte: first }
+    }, orderBy: { effectivePeriod: "desc" }, select: { amount: true } });
     const due = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), Math.min(contract.dueDay, last.getUTCDate())));
     const dueDate = due < contract.startDate ? contract.startDate : due;
     const charge = await tx.rentalCharge.create({ data: {
       tenantId: auth.tenantId!, contractId: id, createdById: auth.userId,
-      period: first, dueDate, amount: contract.monthlyRent, currency: contract.currency,
+      period: first, dueDate, amount: adjustment?.amount ?? contract.monthlyRent, currency: contract.currency,
       concept: "alquiler"
     } });
     return { charge, created: true };
@@ -131,6 +134,10 @@ rentalChargeRoutes.post("/rental-payments/:id/void", async (req, res) => {
     const existing = await tx.rentalPayment.findUnique({ where: { id } });
     if (!existing) throw new ApiError("NOT_FOUND", "El cobro no existe.");
     await lockCharge(tx, existing.chargeId);
+    const settlement = await tx.rentalSettlement.findFirst({ where: {
+      chargeId: existing.chargeId, status: { not: "cancelada" }
+    }, select: { id: true } });
+    if (settlement) throw new ApiError("CONFLICT", "Cancelá la liquidación preparada antes de revertir el cobro. Una liquidación pagada no admite reversión.");
     const { count } = await tx.rentalPayment.updateMany({ where: { id, voidedAt: null },
       data: { voidedAt: new Date(), voidReason: reason, voidedById: auth.userId } });
     if (!count) throw new ApiError("CONFLICT", "El cobro ya fue revertido.");

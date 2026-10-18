@@ -33,6 +33,8 @@ enum UserEstado {
 }
 
 enum RentalPersonRole {
+  comprador
+  vendedor
   propietario
   inquilino
   garante
@@ -358,6 +360,14 @@ model Tenant {
   maintenanceEvents MaintenanceEvent[]
   rentalCharges RentalCharge[]
   rentalPayments RentalPayment[]
+  rentalAdjustments RentalAdjustment[]
+  rentalSettlements RentalSettlement[]
+  portalAccesses RentalPortalAccess[]
+  portalInvitations RentalPortalInvitation[]
+  portalSessions RentalPortalSession[]
+  portalPasswordResets RentalPortalPasswordReset[]
+  rentalInquiries RentalInquiry[]
+  rentalDocuments RentalDocument[]
 
   @@map("tenants")
 }
@@ -404,6 +414,13 @@ model User {
   rentalChargesCreated RentalCharge[] @relation("rentalChargeCreator")
   rentalPaymentsCreated RentalPayment[] @relation("rentalPaymentCreator")
   rentalPaymentsVoided RentalPayment[] @relation("rentalPaymentVoidActor")
+  rentalAdjustmentsCreated RentalAdjustment[] @relation("rentalAdjustmentCreator")
+  rentalSettlementsCreated RentalSettlement[] @relation("rentalSettlementCreator")
+  rentalSettlementsPaid RentalSettlement[] @relation("rentalSettlementPaidActor")
+  rentalSettlementsCancelled RentalSettlement[] @relation("rentalSettlementCancelledActor")
+  portalInvitationsCreated RentalPortalInvitation[]
+  rentalDocumentsUploaded RentalDocument[]
+  rentalInquiriesAnswered RentalInquiry[]
 
   @@index([tenantId, email])
   @@map("users")
@@ -486,8 +503,11 @@ model RentalPerson {
 
   tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdBy User   @relation("rentalPersonCreator", fields: [createdById], references: [id])
+  commercialLinks ClientOperation[]
   ownedContracts RentalContract[] @relation("rentalContractOwner")
   occupiedContracts RentalContract[] @relation("rentalContractTenant")
+  portalAccesses RentalPortalAccess[]
+  portalInvitations RentalPortalInvitation[]
 
   @@unique([id, tenantId])
   @@index([tenantId, nombre])
@@ -521,6 +541,10 @@ model RentalContract {
   events       RentalContractEvent[]
   maintenanceRequests MaintenanceRequest[]
   rentalCharges RentalCharge[]
+  adjustments RentalAdjustment[]
+  settlements RentalSettlement[]
+  inquiries RentalInquiry[]
+  documents RentalDocument[]
 
   @@unique([id, tenantId])
   @@unique([id, propertyId, tenantId])
@@ -636,8 +660,10 @@ model RentalCharge {
   contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
   createdBy User @relation("rentalChargeCreator", fields: [createdById], references: [id])
   payments RentalPayment[]
+  settlements RentalSettlement[]
 
   @@unique([id, tenantId])
+  @@unique([id, contractId, tenantId])
   @@unique([contractId, period, concept])
   @@index([tenantId, dueDate])
   @@map("rental_charges")
@@ -671,6 +697,185 @@ model RentalPayment {
   @@map("rental_payments")
 }
 
+/// Nuevo importe mensual a partir de un período; los cargos ya emitidos no se reescriben.
+model RentalAdjustment {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  contractId  String   @map("contract_id") @db.Uuid
+  createdById String   @map("created_by_id") @db.Uuid
+  effectivePeriod DateTime @map("effective_period") @db.Date
+  amount      Decimal  @db.Decimal(14, 2)
+  reason      String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  createdBy User @relation("rentalAdjustmentCreator", fields: [createdById], references: [id])
+
+  @@unique([contractId, effectivePeriod])
+  @@index([tenantId, contractId, effectivePeriod(sort: Desc)])
+  @@map("rental_adjustments")
+}
+
+/// Liquidación administrativa de un cargo cobrado por completo. Registrar el
+/// pago al propietario no inicia una transferencia bancaria.
+model RentalSettlement {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  contractId  String   @map("contract_id") @db.Uuid
+  chargeId    String   @map("charge_id") @db.Uuid
+  createdById String   @map("created_by_id") @db.Uuid
+  gross       Decimal  @db.Decimal(14, 2)
+  commission  Decimal  @db.Decimal(14, 2)
+  expenses    Decimal  @db.Decimal(14, 2)
+  net         Decimal  @db.Decimal(14, 2)
+  currency    Moneda
+  status      String   @default("preparada")
+  note        String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  paidAt      DateTime? @map("paid_at") @db.Date
+  paymentMethod String? @map("payment_method")
+  paymentReference String? @map("payment_reference")
+  paidById    String?  @map("paid_by_id") @db.Uuid
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason String? @map("cancel_reason")
+  cancelledById String? @map("cancelled_by_id") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  charge RentalCharge @relation(fields: [chargeId, contractId, tenantId], references: [id, contractId, tenantId], onDelete: Restrict)
+  createdBy User @relation("rentalSettlementCreator", fields: [createdById], references: [id])
+  paidBy User? @relation("rentalSettlementPaidActor", fields: [paidById], references: [id])
+  cancelledBy User? @relation("rentalSettlementCancelledActor", fields: [cancelledById], references: [id])
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([contractId, createdAt(sort: Desc)])
+  @@index([chargeId])
+  @@map("rental_settlements")
+}
+
+/// Identidad externa compartida entre inmobiliarias; nunca es un usuario interno.
+model RentalPortalAccount {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email String @unique @db.Citext
+  passwordHash String @map("password_hash")
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  accesses RentalPortalAccess[]
+  sessions RentalPortalSession[]
+  passwordResets RentalPortalPasswordReset[]
+  inquiries RentalInquiry[]
+
+  @@map("rental_portal_accounts")
+}
+
+model RentalPortalAccess {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  personId String @map("person_id") @db.Uuid
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account RentalPortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  person RentalPerson @relation(fields: [personId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([tenantId, personId])
+  @@index([accountId, tenantId, active])
+  @@map("rental_portal_accesses")
+}
+
+model RentalPortalInvitation {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  personId String @map("person_id") @db.Uuid
+  createdById String @map("created_by_id") @db.Uuid
+  email String @db.Citext
+  tokenHash String @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  person RentalPerson @relation(fields: [personId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId, personId, createdAt(sort: Desc)])
+  @@map("rental_portal_invitations")
+}
+
+model RentalPortalSession {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  tokenHash String @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account RentalPortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, tenantId, expiresAt])
+  @@map("rental_portal_sessions")
+}
+
+model RentalPortalPasswordReset {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  tokenHash String @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  account RentalPortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, expiresAt])
+  @@map("rental_portal_password_resets")
+}
+
+model RentalInquiry {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  contractId String @map("contract_id") @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  category String
+  title String
+  description String
+  status String @default("abierta")
+  response String?
+  answeredById String? @map("answered_by_id") @db.Uuid
+  answeredAt DateTime? @map("answered_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  account RentalPortalAccount @relation(fields: [accountId], references: [id])
+  answeredBy User? @relation(fields: [answeredById], references: [id])
+
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([contractId, createdAt(sort: Desc)])
+  @@map("rental_inquiries")
+}
+
+model RentalDocument {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  contractId String @map("contract_id") @db.Uuid
+  uploadedById String @map("uploaded_by_id") @db.Uuid
+  title String
+  kind String
+  visibility String
+  storageKey String @unique @map("storage_key")
+  size Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
+
+  @@index([contractId, createdAt(sort: Desc)])
+  @@map("rental_documents")
+}
+
 model Lead {
   id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId      String             @map("tenant_id") @db.Uuid
@@ -696,6 +901,7 @@ model Lead {
   property      Property?      @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   assignee      User?          @relation("leadAssignee", fields: [assignedTo], references: [id])
   takenBy       User?          @relation("leadTakenBy", fields: [tomadoPor], references: [id], onDelete: SetNull)
+  clientLinks   ClientOperation[]
   notes         LeadNote[]
   statusHistory LeadStatusHistory[]
   conversations Conversation[]
@@ -703,6 +909,7 @@ model Lead {
   @@index([tenantId, estado])
   @@index([tenantId, canal])
   @@index([assignedTo])
+  @@unique([id, tenantId])
   @@map("leads")
 }
 
@@ -1183,4 +1390,18 @@ model PropertyCopyUsage {
 
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("property_copy_usage")
+}
+
+/// Vínculo comercial explícito. No fusiona personas ni modifica consultas existentes.
+model ClientOperation {
+  personId String @map("person_id") @db.Uuid
+  leadId String @map("lead_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  person RentalPerson @relation(fields: [personId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  lead Lead @relation(fields: [leadId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@id([personId, leadId])
+  @@index([tenantId, leadId])
+  @@map("client_operations")
 }

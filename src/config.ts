@@ -43,6 +43,7 @@ const envSchema = z.object({
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().default("property-images-dev"),
+  R2_PRIVATE_BUCKET: z.string().optional(),
   R2_PUBLIC_URL: z.string().optional(),
   // Borradores de fichas: credencial exclusiva del servidor, nunca del panel.
   OPENAI_API_KEY: z.string().optional(),

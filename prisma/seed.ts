@@ -4,6 +4,8 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { seedClients } from "./seed-clients.js";
+import { newDocumentKey, saveRentalPdf } from "../src/lib/rental-documents-storage.js";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error("El seed de demostración no puede ejecutarse en producción.");
@@ -21,18 +23,40 @@ const prisma = new PrismaClient({ datasources: { db: { url } } });
 // Credenciales SOLO de desarrollo.
 const DEV_PASSWORD = "password123";
 
+function demoPdf(title: string): Buffer {
+  const content = `BT /F1 20 Tf 72 720 Td (${title}) Tj ET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${offsets.length}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf);
+}
+
 async function main() {
   const passwordHash = await bcrypt.hash(DEV_PASSWORD, 12);
 
   const tenants = await Promise.all([
     prisma.tenant.upsert({
       where: { slug: "demo-a" },
-      update: { nombre: "Inmobiliaria Demo A" },
+      update: { nombre: "Inmobiliaria Demo A", logoUrl: null },
       create: { nombre: "Inmobiliaria Demo A", slug: "demo-a" }
     }),
     prisma.tenant.upsert({
       where: { slug: "demo-b" },
-      update: { nombre: "Inmobiliaria Demo B" },
+      update: { nombre: "Inmobiliaria Demo B", logoUrl: null },
       create: { nombre: "Inmobiliaria Demo B", slug: "demo-b" }
     })
   ]);
@@ -133,6 +157,16 @@ async function main() {
     const renter = await prisma.rentalPerson.findFirstOrThrow({
       where: { tenantId: tenant.id, email: `inquilino@alquiler-demo-${suffix}.test` }
     });
+    for (const person of [owner, renter]) {
+      const account = await prisma.rentalPortalAccount.upsert({
+        where: { email: person.email! }, update: {},
+        create: { email: person.email!, passwordHash }
+      });
+      await prisma.rentalPortalAccess.upsert({
+        where: { tenantId_personId: { tenantId: tenant.id, personId: person.id } },
+        update: {}, create: { tenantId: tenant.id, personId: person.id, accountId: account.id }
+      });
+    }
     const existingContract = await prisma.rentalContract.findFirst({
       where: { tenantId: tenant.id, propertyId: rentalProperty.id, ownerPersonId: owner.id,
         tenantPersonId: renter.id, startDate: new Date("2026-11-01T00:00:00Z") }
@@ -166,6 +200,66 @@ async function main() {
       monthlyRent: index === 0 ? "380000.00" : "460000.00", currency: "ARS", dueDay: 10,
       status: "vigente"
     } });
+    const portalMaintenance = await prisma.maintenanceRequest.findFirst({ where: {
+      tenantId: tenant.id, contractId: financeContract.id,
+      title: `Revisión de calefacción demo ${suffix.toUpperCase()}`
+    } });
+    if (!portalMaintenance) {
+      const item = await prisma.maintenanceRequest.create({ data: {
+        tenantId: tenant.id, propertyId: financeProperty.id, contractId: financeContract.id,
+        createdById: admin.id, title: `Revisión de calefacción demo ${suffix.toUpperCase()}`,
+        description: "Pedido ficticio vinculado al contrato vigente para seguirlo desde ambos portales.",
+        priority: "normal", status: "en_gestion"
+      } });
+      await prisma.maintenanceEvent.create({ data: { tenantId: tenant.id, requestId: item.id,
+        actorId: admin.id, toState: "abierta", note: "Pedido ficticio recibido" } });
+      await prisma.maintenanceEvent.create({ data: { tenantId: tenant.id, requestId: item.id,
+        actorId: admin.id, fromState: "abierta", toState: "en_gestion", note: "Proveedor contactado" } });
+    }
+    for (const service of [
+      { type: "luz" as const, provider: "Energía Demo", accountNumber: `LUZ-PORTAL-${suffix.toUpperCase()}`, visibility: "ambos" as const },
+      { type: "agua" as const, provider: "Aguas Demo", accountNumber: `AGUA-PORTAL-${suffix.toUpperCase()}`, visibility: "inquilino" as const }
+    ]) {
+      const existing = await prisma.rentalServiceAccount.findFirst({ where: {
+        tenantId: tenant.id, propertyId: financeProperty.id, type: service.type,
+        accountNumber: service.accountNumber
+      } });
+      if (!existing) await prisma.rentalServiceAccount.create({ data: {
+        tenantId: tenant.id, propertyId: financeProperty.id, createdById: admin.id, ...service
+      } });
+    }
+    const renterAccount = await prisma.rentalPortalAccount.findUniqueOrThrow({ where: { email: renter.email! } });
+    const demoInquiry = await prisma.rentalInquiry.findFirst({ where: {
+      tenantId: tenant.id, contractId: financeContract.id, title: `Consulta de alquiler demo ${suffix.toUpperCase()}`
+    } });
+    if (!demoInquiry) await prisma.rentalInquiry.create({ data: {
+      tenantId: tenant.id, contractId: financeContract.id, accountId: renterAccount.id,
+      category: "consulta", title: `Consulta de alquiler demo ${suffix.toUpperCase()}`,
+      description: "Quisiera saber cuándo se acredita el pago informado en el portal."
+    } });
+    const demoComplaint = await prisma.rentalInquiry.findFirst({ where: {
+      tenantId: tenant.id, contractId: financeContract.id, title: `Reclamo resuelto demo ${suffix.toUpperCase()}`
+    } });
+    if (!demoComplaint) await prisma.rentalInquiry.create({ data: {
+      tenantId: tenant.id, contractId: financeContract.id, accountId: renterAccount.id,
+      category: "reclamo", title: `Reclamo resuelto demo ${suffix.toUpperCase()}`,
+      description: "La canilla de la cocina perdía agua y solicité una revisión.",
+      status: "resuelta", response: "La reparación fue coordinada por mantenimiento.",
+      answeredById: admin.id, answeredAt: new Date("2026-10-10T00:00:00Z")
+    } });
+    const documentTitle = `Contrato de ejemplo demo ${suffix.toUpperCase()}`;
+    const existingDocument = await prisma.rentalDocument.findFirst({ where: {
+      tenantId: tenant.id, contractId: financeContract.id, title: documentTitle
+    } });
+    if (!existingDocument) {
+      const key = newDocumentKey(tenant.id, financeContract.id);
+      const pdf = demoPdf(`Contrato demo ${suffix.toUpperCase()}`);
+      await saveRentalPdf(key, pdf);
+      await prisma.rentalDocument.create({ data: {
+        tenantId: tenant.id, contractId: financeContract.id, uploadedById: admin.id,
+        title: documentTitle, kind: "contrato", visibility: "ambos", storageKey: key, size: pdf.length
+      } });
+    }
     const financeCharge = await prisma.rentalCharge.upsert({
       where: { contractId_period_concept: { contractId: financeContract.id,
         period: new Date("2026-10-01T00:00:00Z"), concept: "alquiler" } },
@@ -183,6 +277,46 @@ async function main() {
         paidAt: new Date("2026-10-10T00:00:00Z"), method: "transferencia",
         reference: `DEMO-${suffix.toUpperCase()}-001`, note: "Cobro ficticio parcial" }
     });
+    const settledCharge = await prisma.rentalCharge.upsert({
+      where: { contractId_period_concept: { contractId: financeContract.id,
+        period: new Date("2026-09-01T00:00:00Z"), concept: "alquiler" } },
+      update: {},
+      create: { tenantId: tenant.id, contractId: financeContract.id, createdById: admin.id,
+        period: new Date("2026-09-01T00:00:00Z"), dueDate: new Date("2026-09-10T00:00:00Z"),
+        amount: financeContract.monthlyRent, currency: "ARS", concept: "alquiler" }
+    });
+    const fullPaymentKey = `00000000-0000-4000-8000-00000000001${suffix}`;
+    await prisma.rentalPayment.upsert({
+      where: { tenantId_idempotencyKey: { tenantId: tenant.id, idempotencyKey: fullPaymentKey } },
+      update: {},
+      create: { tenantId: tenant.id, chargeId: settledCharge.id, createdById: admin.id,
+        idempotencyKey: fullPaymentKey, amount: financeContract.monthlyRent,
+        paidAt: new Date("2026-09-10T00:00:00Z"), method: "transferencia",
+        reference: `DEMO-${suffix.toUpperCase()}-COMPLETO`, note: "Cobro ficticio completo" }
+    });
+    await prisma.rentalAdjustment.upsert({
+      where: { contractId_effectivePeriod: { contractId: financeContract.id,
+        effectivePeriod: new Date("2026-11-01T00:00:00Z") } },
+      update: {},
+      create: { tenantId: tenant.id, contractId: financeContract.id, createdById: admin.id,
+        effectivePeriod: new Date("2026-11-01T00:00:00Z"),
+        amount: index === 0 ? "420000.00" : "510000.00",
+        reason: "Ajuste ficticio para probar cargos futuros" }
+    });
+    const existingSettlement = await prisma.rentalSettlement.findFirst({
+      where: { chargeId: settledCharge.id, status: { not: "cancelada" } }
+    });
+    if (!existingSettlement) await prisma.rentalSettlement.create({ data: {
+      tenantId: tenant.id, contractId: financeContract.id, chargeId: settledCharge.id,
+      createdById: admin.id, gross: financeContract.monthlyRent,
+      commission: index === 0 ? "19000.00" : "23000.00",
+      expenses: index === 0 ? "5000.00" : "7000.00",
+      net: index === 0 ? "356000.00" : "430000.00", currency: "ARS",
+      status: index === 0 ? "pagada" : "preparada",
+      note: "Liquidación ficticia del seed local",
+      ...(index === 0 ? { paidAt: new Date("2026-09-12T00:00:00Z"),
+        paymentMethod: "transferencia", paymentReference: "DEMO-A-DUENO-001", paidById: admin.id } : {})
+    } });
     const demoMaintenance = await prisma.maintenanceRequest.findFirst({
       where: { tenantId: tenant.id, propertyId: rentalProperty.id, title: `Revisión de canilla demo ${suffix.toUpperCase()}` }
     });
@@ -241,6 +375,8 @@ async function main() {
       } });
     }
 
+    await seedClients(prisma, tenant.id, admin.id, suffix);
+
     for (const [tipo, titulo] of [
       ["error", `Reporte de prueba ${suffix.toUpperCase()}`],
       ["sugerencia", `Sugerencia de prueba ${suffix.toUpperCase()}`]
@@ -253,7 +389,7 @@ async function main() {
     }
   }
 
-  console.log("Seed local Lokation OK: dos inmobiliarias con usuarios, propiedades, fotos, consultas, personas, contratos, servicios, mantenimiento, cobros y feedback.");
+  console.log("Seed local Lokation OK: dos inmobiliarias con personal, propietarios, inquilinos, portales, propiedades, contratos, PDF privado, consultas, mantenimiento, cobros, ajustes y liquidaciones.");
   console.log(`Contraseña local de demostración: ${DEV_PASSWORD}`);
 }
 
