@@ -1,3 +1,4 @@
+import { sha256 } from "../src/lib/tokens.js";
 import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
@@ -133,12 +134,23 @@ describe.runIf(DB_AVAILABLE)("Portal de alquileres por inmobiliaria", () => {
       .set("x-csrf-token", csrfA).set("Content-Type", "application/pdf").send(pdf);
     expect(upload.status).toBe(201);
     const documentId = upload.body.document.id;
+    const grant = await request(app).get(`/v1/portal/portal-a/documents/${documentId}/download-ticket`).set("Authorization", `Bearer ${renterTokenA}`);
+    expect(grant.status).toBe(200);
+    const directUrl = new URL(grant.body.url);
+    expect((await request(app).get(directUrl.pathname + directUrl.search)).status).toBe(200);
+    await adminDb().rentalPortalSession.update({where:{tokenHash:sha256(renterTokenA)},data:{revokedAt:new Date()}});
+    expect((await request(app).get(directUrl.pathname + directUrl.search)).status).toBe(401);
+    await adminDb().rentalPortalSession.update({where:{tokenHash:sha256(renterTokenA)},data:{revokedAt:null}});
+
+    expect((await request(app).get(`/v1/portal/portal-a/documents/${documentId}/download-ticket`).set("Authorization", `Bearer ${ownerTokenA}`)).status).toBe(404);
+
     expect((await request(app).get(`/v1/portal/portal-a/documents/${documentId}/content`)
       .set("Authorization", `Bearer ${renterTokenA}`)).status).toBe(200);
     expect((await request(app).get(`/v1/portal/portal-a/documents/${documentId}/content`)
       .set("Authorization", `Bearer ${ownerTokenA}`)).status).toBe(404);
     expect((await adminB.get(`/v1/rental-documents/${documentId}/content`)).status).toBe(404);
     expect((await adminA.delete(`/v1/rental-documents/${documentId}`).set("x-csrf-token", csrfA)).status).toBe(200);
+    expect((await request(app).get(directUrl.pathname + directUrl.search)).status).toBe(404);
   });
 
   it("mantiene los legajos internos fuera de ambos portales", async () => {

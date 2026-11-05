@@ -47,6 +47,31 @@ describe.runIf(DB_AVAILABLE)("Legajos por contrato", () => {
     expect((await agent.get(`/v1/rental-documents/${documentId}/content`)).status).toBe(403);
     expect((await admin.delete(`/v1/rental-contracts/${contractId}/guarantors/${guarantor}`).set("x-csrf-token",csrf)).status).toBe(409);
   });
+  it("transfiere más de 4,5 MB directamente con ticket de un solo uso",async()=>{
+    const bytes=Buffer.alloc(6*1024*1024); pdf.copy(bytes);
+    const metadata={mode:"vault",title:"Carga directa grande",kind:"otro",originalName:"grande.pdf",size:bytes.length,contractId,personId:renter,dossierKind:"identidad"};
+    const ticket=await admin.post("/v1/rental-documents/upload-ticket").set("x-csrf-token",csrf).send(metadata);
+    expect(ticket.status).toBe(200); expect(ticket.body.token).toBeTruthy();
+    const send=(token:string)=>request(app).post("/v1/file-transfers/upload").set("Authorization",`Bearer ${token}`).set("Content-Type","application/octet-stream").send(bytes);
+    expect((await request(app).post("/v1/file-transfers/upload").set("Authorization",`Bearer ${ticket.body.token.slice(0,-5)}xxxxx`)).status).toBe(401);
+    const uploaded=await send(ticket.body.token); expect(uploaded.status,JSON.stringify(uploaded.body)).toBe(201);
+    expect(uploaded.body.document.size).toBe(bytes.length);
+    expect((await request(app).post("/v1/file-transfers/upload").set("Authorization",`Bearer ${ticket.body.token}`).set("Content-Type","application/octet-stream").set("Content-Length",String(bytes.length))).status).toBe(409);
+    const id=uploaded.body.document.id;
+    const grant=await admin.get(`/v1/rental-documents/${id}/download-ticket`); expect(grant.status).toBe(200);
+    const url=new URL(grant.body.url);
+    const downloaded=await request(app).get(url.pathname+url.search); expect(downloaded.status).toBe(200); expect(Buffer.from(downloaded.body)).toEqual(bytes);
+    expect(downloaded.headers["cache-control"]).toBe("no-store");
+    expect((await other.get(`/v1/rental-documents/${id}/download-ticket`)).status).toBe(404);
+    expect((await agent.get(`/v1/rental-documents/${id}/download-ticket`)).status).toBe(403);
+    expect((await other.post("/v1/rental-documents/upload-ticket").set("x-csrf-token",csrfB).send(metadata)).status).toBe(404);
+    await adminDb().user.update({where:{id:a.admin.id},data:{estado:"inactivo"}});
+    try { expect((await request(app).get(url.pathname+url.search)).status).toBe(401); }
+    finally { await adminDb().user.update({where:{id:a.admin.id},data:{estado:"activo"}}); }
+    await admin.delete(`/v1/rental-documents/${id}`).set("x-csrf-token",csrf).expect(200);
+    expect((await request(app).get(url.pathname+url.search)).status).toBe(404);
+  });
+
   it("aplica privacidad SQL y aísla documentos y vínculos",async()=>{
     expect(await runWithContext({rol:"portal",tenantId:a.tenant.id,userId:a.admin.id},tx=>tx.rentalDocument.count({where:{id:documentId}}))).toBe(0);
     expect(await runWithContext({rol:"admin",tenantId:b.tenant.id,userId:b.admin.id},tx=>tx.rentalGuarantor.count())).toBe(0);

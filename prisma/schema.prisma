@@ -1483,3 +1483,10 @@ model RentalGuarantor {
   @@index([tenantId])
   @@map("rental_guarantors")
 }
+
+model FileUploadUse {
+ id String @id @db.Uuid
+ expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+ @@index([expiresAt])
+ @@map("file_upload_uses")
+}

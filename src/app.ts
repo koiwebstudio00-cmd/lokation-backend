@@ -1,3 +1,4 @@
+import { fileTransferRoutes } from "./modules/rentals/file-transfers.js";
 import { rentalDossierRoutes } from "./modules/rentals/dossiers.js";
 import { rentalTermsRoutes } from "./modules/rentals/terms.js";
 import { managedPropertyRoutes } from "./modules/rentals/properties.js";
@@ -70,6 +71,7 @@ export function buildApp() {
 
   const v1 = express.Router();
   v1.use(healthRoutes);
+  v1.use(fileTransferRoutes);
   v1.use(taskRoutes);
   v1.use(managedPropertyRoutes);
   v1.use(rentalTermsRoutes);

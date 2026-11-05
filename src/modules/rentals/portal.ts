@@ -1,3 +1,4 @@
+import { sealTransfer } from "../../lib/file-transfer-tickets.js";
 import { Router, type RequestHandler } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
@@ -258,6 +259,13 @@ rentalPortalRoutes.post("/portal/:slug/contracts/:id/inquiries", async (req, res
       accountId: req.portal!.accountId, ...body } });
   });
   res.status(201).json({ item });
+});
+
+rentalPortalRoutes.get("/portal/:slug/documents/:id/download-ticket", async (req,res) => {
+  const id = uuid.parse(req.params.id);
+  const document = await runWithContext(portalCtx(req), tx=>tx.rentalDocument.findUnique({where:{id},select:{id:true}}));
+  if(!document) throw new ApiError("NOT_FOUND", "El documento no existe.");
+  res.set("Cache-Control","no-store").json(sealTransfer({operation:"download",path:`/portal/${req.portal!.slug}/documents/${id}/content`,credential:req.get("authorization")!.slice(7),portal:true}));
 });
 
 rentalPortalRoutes.get("/portal/:slug/documents/:id/content", async (req, res) => {

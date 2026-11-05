@@ -1,3 +1,5 @@
+import { sealTransfer } from "../../lib/file-transfer-tickets.js";
+import { ACCESS_COOKIE } from "../../lib/cookies.js";
 import express, { Router } from "express";
 import { z } from "zod";
 import { ApiError } from "../../lib/errors.js";
@@ -12,6 +14,38 @@ const metadata = z.object({ title: z.string().trim().min(3).max(160),
   kind: z.enum(["contrato", "comprobante", "inventario", "otro"]),
   visibility: z.enum(["interna", "inquilino", "propietario", "ambos"]) });
 const select = { personId: true, dossierKind: true, person: { select: { id: true, nombre: true } }, id: true, title: true, kind: true, visibility: true, size: true, mimeType: true, originalName: true, createdAt: true } as const;
+
+const uploadTicketSchema = z.object({
+  mode: z.enum(["vault", "contract"]), title: metadata.shape.title, kind: metadata.shape.kind,
+  visibility: metadata.shape.visibility.default("interna"), originalName: z.string().trim().min(1).max(255),
+  contractId: uuid.optional(), personId: uuid.optional(), dossierKind: z.enum(["identidad","ingresos","garantia","otro"]).optional(),
+  size: z.number().int().min(8).max(10 * 1024 * 1024)
+}).strict();
+rentalDocumentRoutes.post("/rental-documents/upload-ticket", async (req,res) => {
+  const info = uploadTicketSchema.parse(req.body);
+  if (info.mode === "contract" && (!info.contractId || info.personId || info.dossierKind)) throw new ApiError("VALIDATION_ERROR", "Contrato inválido.");
+  if (info.mode === "vault" && (info.contractId || info.personId || info.dossierKind) && !(info.contractId && info.personId && info.dossierKind)) throw new ApiError("VALIDATION_ERROR", "Legajo incompleto.");
+  await runWithContext(req.auth!, async tx => {
+    if (!info.contractId) return;
+    const contract = await tx.rentalContract.findUnique({where:{id:info.contractId}});
+    if (!contract) throw new ApiError("NOT_FOUND", "El contrato no existe.");
+    if (info.personId && info.personId !== contract.tenantPersonId && !await tx.rentalGuarantor.findUnique({where:{contractId_personId:{contractId:info.contractId,personId:info.personId}}})) throw new ApiError("VALIDATION_ERROR", "La persona no pertenece al legajo.");
+  });
+  const query = new URLSearchParams({title:info.title,kind:info.kind});
+  if(info.mode === "contract") query.set("visibility",info.visibility);
+  else {
+    query.set("originalName",info.originalName);
+    if(info.contractId) { query.set("contractId",info.contractId); query.set("personId",info.personId!); query.set("dossierKind",info.dossierKind!); }
+  }
+  const path = info.mode === "contract" ? `/rental-contracts/${info.contractId}/documents` : "/rental-documents";
+  res.set("Cache-Control","no-store").json(sealTransfer({operation:"upload",path:`${path}?${query}`,credential:req.cookies[ACCESS_COOKIE],portal:false,size:info.size}));
+});
+rentalDocumentRoutes.get("/rental-documents/:id/download-ticket", async (req,res) => {
+  const id = uuid.parse(req.params.id);
+  const document = await runWithContext(req.auth!, tx=>tx.rentalDocument.findUnique({where:{id},select:{id:true}}));
+  if(!document) throw new ApiError("NOT_FOUND", "El documento no existe.");
+  res.set("Cache-Control","no-store").json(sealTransfer({operation:"download",path:`/rental-documents/${id}/content${req.query.preview === "1" ? "?preview=1" : ""}`,credential:req.cookies[ACCESS_COOKIE],portal:false}));
+});
 
 // The vault uses the same tenant/RLS boundary and private download endpoint as contracts.
 rentalDocumentRoutes.post("/rental-documents", express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
