@@ -11,12 +11,15 @@ const uuid = z.string().uuid();
 const metadata = z.object({ title: z.string().trim().min(3).max(160),
   kind: z.enum(["contrato", "comprobante", "inventario", "otro"]),
   visibility: z.enum(["interna", "inquilino", "propietario", "ambos"]) });
-const select = { id: true, title: true, kind: true, visibility: true, size: true, mimeType: true, originalName: true, createdAt: true } as const;
+const select = { personId: true, dossierKind: true, person: { select: { id: true, nombre: true } }, id: true, title: true, kind: true, visibility: true, size: true, mimeType: true, originalName: true, createdAt: true } as const;
 
 // The vault uses the same tenant/RLS boundary and private download endpoint as contracts.
 rentalDocumentRoutes.post("/rental-documents", express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
   const info = z.object({ title: metadata.shape.title, kind: metadata.shape.kind,
-    originalName: z.string().trim().min(1).max(255) }).parse(req.query);
+    originalName: z.string().trim().min(1).max(255), contractId: uuid.optional(), personId: uuid.optional(),
+    dossierKind: z.enum(["identidad", "ingresos", "garantia", "otro"]).optional() }).superRefine((v,ctx) => {
+      if ((v.contractId || v.personId || v.dossierKind) && !(v.contractId && v.personId && v.dossierKind)) ctx.addIssue({code: "custom", message: "Indicá contrato, persona y tipo de legajo."});
+    }).parse(req.query);
   if (!Buffer.isBuffer(req.body)) throw new ApiError("VALIDATION_ERROR", "Seleccioná un archivo.");
   const type = detectPrivateFile(req.body);
   const auth = req.auth!;
@@ -24,8 +27,17 @@ rentalDocumentRoutes.post("/rental-documents", express.raw({ type: "application/
   await savePrivateFile(key, req.body);
   try {
     const document = await runWithContext({ tenantId: auth.tenantId!, userId: auth.userId, rol: "admin" },
-      tx => tx.rentalDocument.create({ data: { ...info, tenantId: auth.tenantId!, uploadedById: auth.userId,
-        visibility: "interna", mimeType: type.mime, storageKey: key, size: req.body.length }, select }));
+      async tx => {
+        if (info.contractId) {
+          await tx.$queryRaw`SELECT id FROM rental_contracts WHERE id = ${info.contractId}::uuid FOR UPDATE`;
+          const contract = await tx.rentalContract.findUnique({ where: { id: info.contractId } });
+          if (!contract) throw new ApiError("NOT_FOUND", "El contrato no existe.");
+          const guarantor = await tx.rentalGuarantor.findUnique({ where: { contractId_personId: { contractId: info.contractId, personId: info.personId! } } });
+          if (contract.tenantPersonId !== info.personId && !guarantor) throw new ApiError("VALIDATION_ERROR", "La persona no es inquilino ni garante de este contrato.");
+        }
+        return tx.rentalDocument.create({ data: { ...info, tenantId: auth.tenantId!, uploadedById: auth.userId,
+          visibility: "interna", mimeType: type.mime, storageKey: key, size: req.body.length }, select });
+      });
     res.status(201).json({ document });
   } catch (error) { await deleteRentalPdf(key); throw error; }
 });
@@ -35,13 +47,16 @@ rentalDocumentRoutes.get("/rental-documents", async (req, res) => {
     q: z.string().trim().max(160).optional(),
     kind: metadata.shape.kind.optional(),
     visibility: metadata.shape.visibility.optional(),
+    personId: uuid.optional(), contractId: uuid.optional(),
+    dossierKind: z.enum(["identidad", "ingresos", "garantia", "otro"]).optional(),
     page: z.coerce.number().int().min(1).max(100000).default(1)
   }).parse(req.query);
   const auth = req.auth!;
   const result = await runWithContext({ tenantId: auth.tenantId!, userId: auth.userId, rol: "admin" }, async (tx) => {
-    const where = { tenantId: auth.tenantId!, kind: query.kind, visibility: query.visibility,
+    const where = { tenantId: auth.tenantId!, personId: query.personId, contractId: query.contractId, dossierKind: query.dossierKind, kind: query.kind, visibility: query.visibility,
       ...(query.q ? { OR: [
         { title: { contains: query.q, mode: "insensitive" as const } },
+        { person: { nombre: { contains: query.q, mode: "insensitive" as const } } },
         { contract: { property: { titulo: { contains: query.q, mode: "insensitive" as const } } } },
         { contract: { owner: { nombre: { contains: query.q, mode: "insensitive" as const } } } },
         { contract: { tenantPerson: { nombre: { contains: query.q, mode: "insensitive" as const } } } }

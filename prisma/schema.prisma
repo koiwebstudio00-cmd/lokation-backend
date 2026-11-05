@@ -369,6 +369,7 @@ model Tenant {
   rentalInquiries RentalInquiry[]
   rentalDocuments RentalDocument[]
 
+  rentalTerms RentalTerms[]
   teamTasks TeamTask[]
   @@map("tenants")
 }
@@ -423,6 +424,7 @@ model User {
   rentalDocumentsUploaded RentalDocument[]
   rentalInquiriesAnswered RentalInquiry[]
 
+  rentalTermsCreated RentalTerms[]
   tasksAssigned TeamTask[] @relation("taskAssignee")
   tasksCreated TeamTask[] @relation("taskCreator")
   @@unique([id, tenantId])
@@ -431,6 +433,8 @@ model User {
 }
 
 model Property {
+  managed Boolean @default(false)
+  administrationOnly Boolean @default(false) @map("administration_only")
   id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String            @map("tenant_id") @db.Uuid
   userId         String            @map("user_id") @db.Uuid
@@ -486,6 +490,7 @@ model Property {
   maintenanceRequests MaintenanceRequest[]
 
   @@unique([id, tenantId])
+  @@index([tenantId, managed])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([tenantId, userId])
   @@index([tenantId, estado])
@@ -507,6 +512,8 @@ model RentalPerson {
 
   tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdBy User   @relation("rentalPersonCreator", fields: [createdById], references: [id])
+  dossierDocuments RentalDocument[]
+  guarantees RentalGuarantor[]
   commercialLinks ClientOperation[]
   ownedContracts RentalContract[] @relation("rentalContractOwner")
   occupiedContracts RentalContract[] @relation("rentalContractTenant")
@@ -545,6 +552,8 @@ model RentalContract {
   events       RentalContractEvent[]
   maintenanceRequests MaintenanceRequest[]
   rentalCharges RentalCharge[]
+  guarantors RentalGuarantor[]
+  terms RentalTerms[]
   adjustments RentalAdjustment[]
   settlements RentalSettlement[]
   inquiries RentalInquiry[]
@@ -724,6 +733,7 @@ model RentalAdjustment {
 /// Liquidación administrativa de un cargo cobrado por completo. Registrar el
 /// pago al propietario no inicia una transferencia bancaria.
 model RentalSettlement {
+  commissionDetails Json? @map("commission_details")
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
   contractId  String   @map("contract_id") @db.Uuid
@@ -865,6 +875,9 @@ model RentalDocument {
   id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId String @map("tenant_id") @db.Uuid
   contractId String? @map("contract_id") @db.Uuid
+  personId String? @map("person_id") @db.Uuid
+  dossierKind String? @map("dossier_kind")
+  person RentalPerson? @relation(fields: [personId, tenantId], references: [id, tenantId], onDelete: Restrict)
   uploadedById String @map("uploaded_by_id") @db.Uuid
   title String
   kind String
@@ -879,6 +892,8 @@ model RentalDocument {
   uploadedBy User @relation(fields: [uploadedById], references: [id])
 
   @@index([tenantId, createdAt(sort: Desc)])
+  @@index([contractId, personId])
+  @@index([personId, tenantId])
   @@index([contractId, createdAt(sort: Desc)])
   @@map("rental_documents")
 }
@@ -1431,4 +1446,40 @@ model TeamTask {
   @@index([tenantId, status, dueDate])
   @@index([tenantId, assignedToId, createdAt(sort: Desc)])
   @@map("team_tasks")
+}
+
+/// Append-only conditions; same-period corrections retain earlier versions.
+model RentalTerms {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  contractId String @map("contract_id") @db.Uuid
+  createdById String @map("created_by_id") @db.Uuid
+  effectivePeriod DateTime @map("effective_period") @db.Date
+  commissionRate Decimal @map("commission_rate") @db.Decimal(5,2)
+  commissionBasis String @map("commission_basis")
+  adjustmentMethod String @map("adjustment_method")
+  frequencyMonths Int? @map("frequency_months")
+  firstAdjustmentPeriod DateTime? @map("first_adjustment_period") @db.Date
+  fixedPercent Decimal? @map("fixed_percent") @db.Decimal(7,2)
+  note String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  createdBy User @relation(fields: [createdById], references: [id])
+  @@index([contractId, effectivePeriod(sort: Desc), createdAt(sort: Desc)])
+  @@index([tenantId, contractId])
+  @@map("rental_terms")
+}
+
+model RentalGuarantor {
+  contractId String @map("contract_id") @db.Uuid
+  personId String @map("person_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  person RentalPerson @relation(fields: [personId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  @@id([contractId, personId])
+  @@index([personId, tenantId])
+  @@index([tenantId])
+  @@map("rental_guarantors")
 }

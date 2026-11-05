@@ -141,6 +141,18 @@ describe.runIf(DB_AVAILABLE)("Portal de alquileres por inmobiliaria", () => {
     expect((await adminA.delete(`/v1/rental-documents/${documentId}`).set("x-csrf-token", csrfA)).status).toBe(200);
   });
 
+  it("mantiene los legajos internos fuera de ambos portales", async () => {
+    const upload = await adminA.post("/v1/rental-documents").query({ title: "Identidad privada", kind: "otro", originalName: "identidad.pdf", contractId: contractA, personId: renterA, dossierKind: "identidad" })
+      .set("x-csrf-token", csrfA).set("Content-Type", "application/octet-stream").send(Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n"));
+    expect(upload.status).toBe(201);
+    for (const token of [ownerTokenA, renterTokenA]) {
+      const detail = await request(app).get(`/v1/portal/portal-a/contracts/${contractA}`).set("Authorization", `Bearer ${token}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.documents.some((d: {id: string}) => d.id === upload.body.document.id)).toBe(false);
+      expect((await request(app).get(`/v1/portal/portal-a/documents/${upload.body.document.id}/content`).set("Authorization", `Bearer ${token}`)).status).toBe(404);
+    }
+  });
+
   it("revoca el acceso sin afectar al otro tenant", async () => {
     expect((await adminA.delete(`/v1/rental-people/${ownerA}/portal-access`)
       .set("x-csrf-token", csrfA)).status).toBe(200);

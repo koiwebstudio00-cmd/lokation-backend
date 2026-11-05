@@ -1,3 +1,4 @@
+import { commissionProposal, termsAt, termsOrder } from "./terms.js";
 import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -48,12 +49,13 @@ rentalChargeRoutes.get("/rental-contracts/:id/charges", async (req, res) => {
   const result = await runWithContext(context(req.auth!), async (tx) => {
     const contract = await tx.rentalContract.findUnique({ where: { id }, select: { id: true } });
     if (!contract) throw new ApiError("NOT_FOUND", "El contrato no existe.");
-    const [charges, total] = await Promise.all([
+    const [charges, total, terms] = await Promise.all([
       tx.rentalCharge.findMany({ where: { contractId: id }, include: { payments: { orderBy: { createdAt: "desc" } } },
         orderBy: { period: "desc" }, skip: (page - 1) * 24, take: 24 }),
-      tx.rentalCharge.count({ where: { contractId: id } })
+      tx.rentalCharge.count({ where: { contractId: id } }),
+      tx.rentalTerms.findMany({ where: { contractId: id }, orderBy: [...termsOrder] })
     ]);
-    return { data: charges.map(summary), meta: { page, limit: 24, total } };
+    return { data: charges.map(charge => { const item = summary(charge); return { ...item, commissionProposal: commissionProposal(termsAt(terms, charge.period), charge, new Prisma.Decimal(item.paid)) }; }), meta: { page, limit: 24, total } };
   });
   res.json(result);
 });

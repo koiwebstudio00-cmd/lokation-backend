@@ -1,3 +1,4 @@
+import { commissionProposal, termsOrder } from "./terms.js";
 import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -25,7 +26,9 @@ const adjustmentSchema = z.object({
   reason: z.string().trim().min(5).max(500)
 }).strict();
 const settlementSchema = z.object({
-  commission: nonnegativeMoney,
+  commission: nonnegativeMoney.optional(),
+  use_agreed_commission: z.boolean().default(false),
+  expected_terms_id: uuid.optional(),
   expenses: nonnegativeMoney,
   note: z.string().trim().max(1000).optional()
 }).strict();
@@ -123,18 +126,27 @@ rentalFinancialRoutes.post("/rental-charges/:id/settlements", async (req, res) =
       await lockCharge(tx, id);
       const charge = await tx.rentalCharge.findUniqueOrThrow({ where: { id },
         include: { payments: { where: { voidedAt: null }, select: { amount: true } } } });
+      await tx.$queryRaw`SELECT id FROM rental_contracts WHERE id = ${charge.contractId}::uuid FOR UPDATE`;
+      const terms = await tx.rentalTerms.findFirst({ where: { contractId: charge.contractId, effectivePeriod: { lte: charge.period } }, orderBy: [...termsOrder] });
       const paid = charge.payments.reduce((sum, item) => sum.plus(item.amount), new Prisma.Decimal(0));
       if (!paid.equals(charge.amount)) throw new ApiError("CONFLICT", "El cargo debe estar cobrado por completo.");
       const active = await tx.rentalSettlement.findFirst({ where: { chargeId: id, status: { not: "cancelada" } } });
       if (active) throw new ApiError("CONFLICT", "El cargo ya tiene una liquidación activa.");
-      const commission = new Prisma.Decimal(body.commission);
+      const proposal = commissionProposal(terms, charge, paid);
+      if (body.use_agreed_commission && (!proposal || body.expected_terms_id !== proposal.termsId)) {
+        throw new ApiError("CONFLICT", "Las condiciones cambiaron o no están configuradas. Actualizá la página antes de liquidar.");
+      }
+      if (!body.use_agreed_commission && body.commission === undefined) throw new ApiError("VALIDATION_ERROR", "Indicá la comisión manual.");
+      if (!body.use_agreed_commission && proposal && (!body.note || body.note.trim().length < 5)) throw new ApiError("VALIDATION_ERROR", "Explicá el motivo de la comisión manual en la nota.");
+      const commission = new Prisma.Decimal(body.use_agreed_commission ? proposal!.amount : body.commission!);
       const expenses = new Prisma.Decimal(body.expenses);
       const net = paid.minus(commission).minus(expenses);
       if (net.lessThan(0)) throw new ApiError("VALIDATION_ERROR", "Los descuentos superan lo cobrado.");
       return tx.rentalSettlement.create({ data: {
         tenantId: auth.tenantId!, contractId: charge.contractId, chargeId: id,
         createdById: auth.userId, gross: paid, commission, expenses, net,
-        currency: charge.currency, note: body.note || null
+        currency: charge.currency, note: body.note || null,
+        commissionDetails: { mode: body.use_agreed_commission ? "acordada" : "manual", proposal, applied: commission.toFixed(2) }
       } });
     });
   } catch (error) {

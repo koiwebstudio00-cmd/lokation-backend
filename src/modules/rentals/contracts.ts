@@ -37,6 +37,7 @@ const noteSchema = z.object({ note: z.string().trim().min(5).max(1000) }).strict
 
 const listQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
+  q: z.string().trim().max(160).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(24)
 });
 const details = {
@@ -52,12 +53,12 @@ function context(auth: AccessClaims) {
 
 async function validateParties(tx: Tx, body: z.infer<typeof contractFields>) {
   const [property, owner, tenantPerson] = await Promise.all([
-    tx.property.findUnique({ where: { id: body.property_id }, select: { id: true, operacion: true } }),
+    tx.property.findUnique({ where: { id: body.property_id }, select: { id: true, operacion: true, managed: true } }),
     tx.rentalPerson.findUnique({ where: { id: body.owner_person_id }, select: { id: true, roles: true } }),
     tx.rentalPerson.findUnique({ where: { id: body.tenant_person_id }, select: { id: true, roles: true } })
   ]);
   if (!property || !owner || !tenantPerson) throw new ApiError("NOT_FOUND", "La propiedad o persona no existe.");
-  if (property.operacion !== "alquiler" && property.operacion !== "ambos") {
+  if (!property.managed && property.operacion !== "alquiler" && property.operacion !== "ambos") {
     throw new ApiError("VALIDATION_ERROR", "La propiedad no admite alquiler.");
   }
   if (!owner.roles.includes("propietario") || !tenantPerson.roles.includes("inquilino")) {
@@ -86,14 +87,15 @@ function snapshot(contract: {
 }
 
 rentalContractRoutes.get("/rental-contracts", async (req, res) => {
-  const { page, limit } = listQuery.parse(req.query);
+  const { page, limit, q } = listQuery.parse(req.query);
+  const where = q ? { OR: [{ property: { titulo: { contains: q, mode: "insensitive" as const } } }, { owner: { nombre: { contains: q, mode: "insensitive" as const } } }, { tenantPerson: { nombre: { contains: q, mode: "insensitive" as const } } }] } : {};
   const result = await runWithContext(context(req.auth!), async (tx) => {
     const [data, total] = await Promise.all([
-      tx.rentalContract.findMany({ include: details, orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      tx.rentalContract.findMany({ where, include: { ...details, terms: { where: { effectivePeriod: { lte: new Date(`${todayLocal().slice(0, 7)}-01T00:00:00Z`) } }, orderBy: [{ effectivePeriod: "desc" }, { createdAt: "desc" }, { id: "desc" }], take: 1 }, adjustments: { where: { effectivePeriod: { lte: new Date(`${todayLocal().slice(0, 7)}-01T00:00:00Z`) } }, orderBy: { effectivePeriod: "desc" }, take: 1 } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * limit, take: limit }),
-      tx.rentalContract.count()
+      tx.rentalContract.count({ where })
     ]);
-    return { data, meta: { page, limit, total } };
+    return { data: data.map(({ adjustments, ...contract }) => ({ ...contract, currentRent: adjustments[0]?.amount ?? contract.monthlyRent, currentRentSince: adjustments[0]?.effectivePeriod ?? contract.startDate })), meta: { page, limit, total } };
   });
   res.json(result);
 });
@@ -103,6 +105,7 @@ rentalContractRoutes.post("/rental-contracts", async (req, res) => {
   const auth = req.auth!;
   const contract = await runWithContext(context(auth), async (tx) => {
     const { property, owner, tenantPerson } = await validateParties(tx, body);
+    await tx.property.update({ where: { id: property.id }, data: { managed: true } });
     return tx.rentalContract.create({ data: {
       tenantId: auth.tenantId!, createdById: auth.userId,
       propertyId: property.id, ownerPersonId: owner.id, tenantPersonId: tenantPerson.id,
@@ -117,11 +120,12 @@ rentalContractRoutes.post("/rental-contracts", async (req, res) => {
 rentalContractRoutes.get("/rental-contracts/:id", async (req, res) => {
   const id = z.string().uuid().parse(req.params.id);
   const contract = await runWithContext(context(req.auth!), (tx) => tx.rentalContract.findUnique({
-    where: { id }, include: { ...details, events: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 30,
+    where: { id }, include: { ...details, terms: { where: { effectivePeriod: { lte: new Date(`${todayLocal().slice(0, 7)}-01T00:00:00Z`) } }, orderBy: [{ effectivePeriod: "desc" }, { createdAt: "desc" }, { id: "desc" }], take: 1 }, adjustments: { where: { effectivePeriod: { lte: new Date(`${todayLocal().slice(0, 7)}-01T00:00:00Z`) } }, orderBy: { effectivePeriod: "desc" }, take: 1 }, events: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 30,
       select: { id: true, action: true, details: true, actorId: true, createdAt: true } } }
   }));
   if (!contract) throw new ApiError("NOT_FOUND", "El contrato no existe.");
-  res.json({ contract });
+  const { adjustments, ...record } = contract;
+  res.json({ contract: { ...record, currentRent: adjustments[0]?.amount ?? contract.monthlyRent, currentRentSince: adjustments[0]?.effectivePeriod ?? contract.startDate } });
 });
 
 rentalContractRoutes.patch("/rental-contracts/:id", async (req, res) => {
@@ -135,6 +139,7 @@ rentalContractRoutes.patch("/rental-contracts/:id", async (req, res) => {
     const before = snapshot(current);
     const merged = createContractSchema.parse({ ...before, ...changes });
     await validateParties(tx, merged);
+    await tx.property.update({ where: { id: merged.property_id }, data: { managed: true } });
     const { count } = await tx.rentalContract.updateMany({ where: { id, status: "borrador" }, data: {
       propertyId: merged.property_id, ownerPersonId: merged.owner_person_id,
       tenantPersonId: merged.tenant_person_id,

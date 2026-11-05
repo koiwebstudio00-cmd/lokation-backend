@@ -1,3 +1,6 @@
+import { rentalDossierRoutes } from "./modules/rentals/dossiers.js";
+import { rentalTermsRoutes } from "./modules/rentals/terms.js";
+import { managedPropertyRoutes } from "./modules/rentals/properties.js";
 import { taskRoutes } from "./modules/tasks/routes.js";
 import { localStorageRouter } from "./lib/local-storage.js";
 import { notificationRoutes } from "./modules/notifications/routes.js";
@@ -68,6 +71,8 @@ export function buildApp() {
   const v1 = express.Router();
   v1.use(healthRoutes);
   v1.use(taskRoutes);
+  v1.use(managedPropertyRoutes);
+  v1.use(rentalTermsRoutes);
   v1.use(notificationRoutes);
   v1.use(authRoutes);
   v1.use(platformRoutes);
@@ -83,6 +88,7 @@ export function buildApp() {
   v1.use(rentalPortalRoutes);
   v1.use(rentalInquiryRoutes);
   v1.use(rentalDocumentRoutes);
+  v1.use(rentalDossierRoutes);
   v1.use(rentalOverviewRoutes);
   v1.use(publicSiteRoutes);
   v1.use(imageRoutes);
