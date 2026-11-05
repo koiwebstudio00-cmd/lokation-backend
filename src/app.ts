@@ -1,3 +1,4 @@
+import { taskRoutes } from "./modules/tasks/routes.js";
 import { localStorageRouter } from "./lib/local-storage.js";
 import { notificationRoutes } from "./modules/notifications/routes.js";
 import cookieParser from "cookie-parser";
@@ -66,6 +67,7 @@ export function buildApp() {
 
   const v1 = express.Router();
   v1.use(healthRoutes);
+  v1.use(taskRoutes);
   v1.use(notificationRoutes);
   v1.use(authRoutes);
   v1.use(platformRoutes);

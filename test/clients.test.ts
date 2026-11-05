@@ -32,6 +32,21 @@ describe.runIf(DB_AVAILABLE)("Clientes unificados", () => {
     leadId = (await db.lead.create({ data: { tenantId: a.tenant.id, nombre: "Operación local", mensaje: "Venta de prueba", canal: "manual", propertyId: property.id } })).id;
     foreignLead = (await db.lead.create({ data: { tenantId: b.tenant.id, nombre: "Operación ajena", mensaje: "Privada", canal: "manual" } })).id;
   });
+  it("la bóveda filtra documentos sin exponer otra inmobiliaria ni claves privadas", async () => {
+    const doc = await adminDb().rentalDocument.create({ data: { tenantId: a.tenant.id,
+      contractId, uploadedById: a.admin.id, title: "Contrato bóveda", kind: "contrato",
+      visibility: "interna", storageKey: "private-test-key", size: 100 } });
+    const found = await adminA.get("/v1/rental-documents?q=previo&kind=contrato&visibility=interna");
+    expect(found.status).toBe(200);
+    expect(found.body.meta.total).toBe(1);
+    expect(found.body.data[0].id).toBe(doc.id);
+    expect(found.body.data[0].storageKey).toBeUndefined();
+    expect((await adminA.get("/v1/rental-documents?kind=inventario")).body.meta.total).toBe(0);
+    expect((await adminB.get("/v1/rental-documents")).body.meta.total).toBe(0);
+    expect((await adminB.get(`/v1/rental-documents/${doc.id}/content`)).status).toBe(404);
+    expect((await agentA.get("/v1/rental-documents")).status).toBe(403);
+    expect((await adminA.get("/v1/rental-documents?page=0")).status).toBe(400);
+  });
   it("amplía roles sin cambiar identidad ni perder contratos", async () => {
     const updated = await adminA.patch(`/v1/clients/${personId}`).set("x-csrf-token", csrf).send({ roles: ["propietario", "comprador", "vendedor"] });
     expect(updated.status).toBe(200);

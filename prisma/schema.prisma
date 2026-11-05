@@ -369,6 +369,7 @@ model Tenant {
   rentalInquiries RentalInquiry[]
   rentalDocuments RentalDocument[]
 
+  teamTasks TeamTask[]
   @@map("tenants")
 }
 
@@ -422,6 +423,9 @@ model User {
   rentalDocumentsUploaded RentalDocument[]
   rentalInquiriesAnswered RentalInquiry[]
 
+  tasksAssigned TeamTask[] @relation("taskAssignee")
+  tasksCreated TeamTask[] @relation("taskCreator")
+  @@unique([id, tenantId])
   @@index([tenantId, email])
   @@map("users")
 }
@@ -860,18 +864,21 @@ model RentalInquiry {
 model RentalDocument {
   id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId String @map("tenant_id") @db.Uuid
-  contractId String @map("contract_id") @db.Uuid
+  contractId String? @map("contract_id") @db.Uuid
   uploadedById String @map("uploaded_by_id") @db.Uuid
   title String
   kind String
   visibility String
   storageKey String @unique @map("storage_key")
+  mimeType String @default("application/pdf") @map("mime_type")
+  originalName String? @map("original_name")
   size Int
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contract RentalContract @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  contract RentalContract? @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
   uploadedBy User @relation(fields: [uploadedById], references: [id])
 
+  @@index([tenantId, createdAt(sort: Desc)])
   @@index([contractId, createdAt(sort: Desc)])
   @@map("rental_documents")
 }
@@ -1404,4 +1411,24 @@ model ClientOperation {
   @@id([personId, leadId])
   @@index([tenantId, leadId])
   @@map("client_operations")
+}
+
+model TeamTask {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  createdById String @map("created_by_id") @db.Uuid
+  assignedToId String @map("assigned_to_id") @db.Uuid
+  title String
+  description String @default("")
+  status String @default("pendiente")
+  priority String @default("normal")
+  dueDate DateTime? @map("due_date") @db.Date
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTo User @relation("taskAssignee", fields: [assignedToId, tenantId], references: [id, tenantId])
+  createdBy User @relation("taskCreator", fields: [createdById, tenantId], references: [id, tenantId])
+  @@index([tenantId, status, dueDate])
+  @@index([tenantId, assignedToId, createdAt(sort: Desc)])
+  @@map("team_tasks")
 }
