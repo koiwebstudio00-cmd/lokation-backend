@@ -16,7 +16,7 @@ userRoutes.get("/users", async (req, res) => {
 
 userRoutes.post("/invitations", requireRole("admin"), async (req, res) => {
   const body = z
-    .object({ email: z.string().email(), rol: z.enum(["admin", "agente"]) })
+    .object({ email: z.string().email(), rol: z.enum(["admin", "agente", "community"]) })
     .parse(req.body);
   const inv = await users.inviteUser(req.auth!, body);
   res.status(201).json({ invitation: { id: inv.id, email: inv.email, rol: inv.rol } });
@@ -68,7 +68,7 @@ userRoutes.patch("/users/:id", requireRole("admin", "super_admin"), async (req, 
   const id = z.string().uuid().parse(req.params.id);
   const body = z
     .object({
-      rol: z.enum(["admin", "agente"]).optional(),
+      rol: z.enum(["admin", "agente", "community"]).optional(),
       estado: z.enum(["activo", "inactivo"]).optional()
     })
     .refine((b) => b.rol !== undefined || b.estado !== undefined, {

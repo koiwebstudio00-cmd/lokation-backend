@@ -23,7 +23,7 @@ export interface SafeUser {
   id: string;
   nombre: string;
   email: string;
-  rol: "super_admin" | "admin" | "agente";
+  rol: "super_admin" | "admin" | "agente" | "community";
   tenantId: string | null;
   tenant: { id: string; nombre: string; slug: string } | null;
 }
@@ -226,7 +226,7 @@ export async function acceptInvitation(
 /** Crea una invitación + email. Reutilizado por tenants (alta) y users (equipo). */
 export async function createInvitation(
   tx: Tx,
-  data: { tenantId: string; invitedBy: string; email: string; rol: "admin" | "agente" },
+  data: { tenantId: string; invitedBy: string; email: string; rol: "admin" | "agente" | "community" },
   tenantNombre: string
 ) {
   const existing = await tx.invitation.findFirst({

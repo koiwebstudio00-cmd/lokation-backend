@@ -24,7 +24,9 @@ export async function folderPermission(tx: Tx, folder: string | null, edit = fal
 export async function requireFolder(tx: Tx, folder: string | null, edit = false) {
   if (!await folderPermission(tx, folder, edit)) throw new ApiError("FORBIDDEN", "No tenés acceso a esta carpeta.");
 }
-export async function documentCanEdit(tx: Tx, doc: {folderId: string | null; accessMode: string; teamPermission: string; grants: unknown}) {
+export async function documentCanEdit(tx: Tx, doc: {folderId: string | null; accessMode: string; teamPermission: string; grants: unknown;uploadedById?:string}) {
+  const [context] = await tx.$queryRaw<{role:string;userId:string}[]>`SELECT ctx_rol() AS role, ctx_user_id()::text AS "userId"`;
+  if(context?.role === "community") return doc.uploadedById === context.userId && (!doc.folderId || await folderPermission(tx,doc.folderId));
   const [r] = await tx.$queryRaw<{allowed:boolean}[]>`SELECT vault_document_allows(${doc.folderId}::uuid, ${doc.accessMode}, ${doc.teamPermission}, ${JSON.stringify(doc.grants)}::jsonb, true) AS allowed`;
   return r?.allowed ?? false;
 }
@@ -34,7 +36,7 @@ export async function lockVault(tx: Tx, auth: AccessClaims) {
 }
 const folderSelect = {deletedAt:true,trashBatchId:true,purgeStartedAt:true,createdAt:true,updatedAt:true,id:true,parentId:true,name:true,accessMode:true,teamPermission:true,grants:true} as const;
 export const vaultRoutes = Router();
-vaultRoutes.use("/vault-folders", requireAuth, requireRole("admin", "agente"));
+vaultRoutes.use("/vault-folders", requireAuth, requireRole("admin", "agente", "community"));
 vaultRoutes.get("/vault-folders", async (req,res) => {
   const state=z.enum(["active","trash","all"]).default("active").parse(req.query.state);
   if(state!=="active"&&req.auth!.rol!=="admin")throw new ApiError("FORBIDDEN","Solo administradores pueden acceder a la papelera.");
@@ -45,6 +47,7 @@ vaultRoutes.get("/vault-folders", async (req,res) => {
   res.json({data:result,asOf:new Date().toISOString()});
 });
 vaultRoutes.post("/vault-folders", async(req,res)=>{
+  if(req.auth!.rol === "community") throw new ApiError("FORBIDDEN","Community solo puede consultar carpetas compartidas.");
   const input=z.object({name:z.string().trim().min(1).max(160),parentId:id.nullable().default(null)}).strict().parse(req.body);
   const folder=await runWithContext(req.auth!,async tx=>{
     await lockVault(tx,req.auth!); await requireFolder(tx,input.parentId,true);

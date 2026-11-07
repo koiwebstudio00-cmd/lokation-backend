@@ -21,6 +21,7 @@ enum UserRol {
   super_admin
   admin
   agente
+  community
 
   @@map("user_rol")
 }

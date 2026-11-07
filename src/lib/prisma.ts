@@ -11,6 +11,7 @@ export type Rol =
   | "super_admin"
   | "admin"
   | "agente"
+  | "community"
   | "public"
   | "auth"
   | "worker"

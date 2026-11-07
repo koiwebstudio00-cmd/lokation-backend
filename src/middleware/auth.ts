@@ -49,6 +49,15 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     throw new ApiError("UNAUTHORIZED", "Sesión expirada o inválida.");
   }
 
+  if (claims.rol === "community") {
+    const path = (req.originalUrl.split("?")[0] ?? "").replace(/^\/v1/, "");
+    const allowed = /^\/auth(?:\/|$)/.test(path)
+      || /^\/users\/me(?:\/password)?$/.test(path)
+      || (req.method === "GET" && /^\/properties(?:\/|$)/.test(path))
+      || /^\/(tasks|feedback|rental-documents|vault-folders|file-transfers)(?:\/|$)/.test(path);
+    if (!allowed) throw new ApiError("FORBIDDEN", "Tu rol Community no tiene acceso a esta funcionalidad.");
+  }
+
   if (UNSAFE.has(req.method)) {
     const cookie = req.cookies?.[CSRF_COOKIE] as string | undefined;
     const header = req.get("x-csrf-token");

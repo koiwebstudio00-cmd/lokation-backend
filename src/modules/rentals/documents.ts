@@ -12,12 +12,12 @@ import { requireAuth, requireRole } from "../../middleware/auth.js";
 
 export const rentalDocumentRoutes = Router();
 rentalDocumentRoutes.use("/rental-contracts", requireAuth, requireRole("admin"));
-rentalDocumentRoutes.use("/rental-documents", requireAuth, requireRole("admin", "agente"));
+rentalDocumentRoutes.use("/rental-documents", requireAuth, requireRole("admin", "agente", "community"));
 const uuid = z.string().uuid();
 const metadata = z.object({ title: z.string().trim().min(3).max(160),
   kind: z.enum(["contrato", "comprobante", "inventario", "otro"]),
   visibility: z.enum(["interna", "inquilino", "propietario", "ambos"]) });
-const select = { deletedAt:true, deletedById:true, updatedAt: true, folderId: true, accessMode: true, teamPermission: true, grants: true, personId: true, dossierKind: true, person: { select: { id: true, nombre: true } }, id: true, title: true, kind: true, visibility: true, size: true, mimeType: true, originalName: true, createdAt: true } as const;
+const select = { uploadedById:true, deletedAt:true, deletedById:true, updatedAt: true, folderId: true, accessMode: true, teamPermission: true, grants: true, personId: true, dossierKind: true, person: { select: { id: true, nombre: true } }, id: true, title: true, kind: true, visibility: true, size: true, mimeType: true, originalName: true, createdAt: true } as const;
 
 const uploadTicketSchema = z.object({
   folderId: uuid.optional(),

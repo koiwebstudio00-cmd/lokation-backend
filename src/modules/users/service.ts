@@ -33,7 +33,7 @@ export async function listUsers(auth: AccessClaims, estado?: "activo" | "inactiv
 
 export async function inviteUser(
   auth: AccessClaims,
-  data: { email: string; rol: "admin" | "agente" }
+  data: { email: string; rol: "admin" | "agente" | "community" }
 ) {
   return runWithContext(ctxOf(auth), async (tx) => {
     const tenant = await tx.tenant.findUnique({ where: { id: auth.tenantId! } });
@@ -68,7 +68,7 @@ export async function revokeInvitation(auth: AccessClaims, id: string) {
 export async function updateUser(
   auth: AccessClaims,
   id: string,
-  data: { rol?: "admin" | "agente"; estado?: "activo" | "inactivo" }
+  data: { rol?: "admin" | "agente" | "community"; estado?: "activo" | "inactivo" }
 ) {
   return runWithContext(ctxOf(auth), async (tx) => {
     const target = await tx.user.findUnique({ where: { id }, select: SAFE_SELECT });

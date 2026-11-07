@@ -19,7 +19,7 @@ import { copyDraftInput, generateCopyDraft } from "./copy-draft.js";
 
 export const propertyRoutes = Router();
 
-propertyRoutes.use("/properties", requireAuth, requireRole("admin", "agente"));
+propertyRoutes.use("/properties", requireAuth, requireRole("admin", "agente", "community"));
 
 const tipoEnum = z.enum(TIPOS);
 const estadoEnum = z.enum(ESTADOS);

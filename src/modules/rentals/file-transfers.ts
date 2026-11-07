@@ -27,7 +27,7 @@ fileTransferRoutes.use("/file-transfers", (req,res,next) => {
   }
   next();
 });
-fileTransferRoutes.post("/file-transfers/upload", requireAuth, requireRole("admin", "agente"), async (req,res,next) => {
+fileTransferRoutes.post("/file-transfers/upload", requireAuth, requireRole("admin", "agente", "community"), async (req,res,next) => {
   const ticket = req.fileTransfer!;
   if (req.get("content-type") !== "application/octet-stream" && req.get("content-type") !== "application/pdf") throw new ApiError("VALIDATION_ERROR", "Formato de transferencia inválido.");
   if (Number(req.get("content-length")) !== ticket.size) throw new ApiError("VALIDATION_ERROR", "El tamaño no coincide con el archivo autorizado.");
