@@ -32,7 +32,7 @@ describe.runIf(DB_AVAILABLE)("Bóveda independiente y tareas", () => {
     expect(Buffer.from(downloaded.body)).toEqual(bytes);
     expect((await other.get(`/v1/rental-documents/${id}/content`)).status).toBe(404);
     expect((await other.delete(`/v1/rental-documents/${id}`).set("x-csrf-token", csrfOther)).status).toBe(404);
-    expect((await agent.get(`/v1/rental-documents/${id}/content`)).status).toBe(403);
+    expect((await agent.get(`/v1/rental-documents/${id}/content`)).status).toBe(404);
     expect((await admin.delete(`/v1/rental-documents/${id}`).set("x-csrf-token", csrf)).status).toBe(200);
     expect((await admin.get(`/v1/rental-documents/${id}/content`)).status).toBe(404);
   });

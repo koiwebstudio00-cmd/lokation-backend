@@ -33,6 +33,7 @@ import { rentalChargeRoutes } from "./modules/rentals/charges.js";
 import { rentalFinancialRoutes } from "./modules/rentals/financials.js";
 import { rentalPortalRoutes } from "./modules/rentals/portal.js";
 import { rentalInquiryRoutes } from "./modules/rentals/inquiries.js";
+import { vaultRoutes } from "./modules/rentals/vault.js";
 import { rentalDocumentRoutes } from "./modules/rentals/documents.js";
 import { rentalOverviewRoutes } from "./modules/rentals/overview.js";
 import { publicSiteRoutes } from "./modules/public-site/routes.js";
@@ -89,6 +90,7 @@ export function buildApp() {
   v1.use(rentalFinancialRoutes);
   v1.use(rentalPortalRoutes);
   v1.use(rentalInquiryRoutes);
+  v1.use(vaultRoutes);
   v1.use(rentalDocumentRoutes);
   v1.use(rentalDossierRoutes);
   v1.use(rentalOverviewRoutes);

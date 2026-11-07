@@ -44,7 +44,9 @@ describe.runIf(DB_AVAILABLE)("Clientes unificados", () => {
     expect((await adminA.get("/v1/rental-documents?kind=inventario")).body.meta.total).toBe(0);
     expect((await adminB.get("/v1/rental-documents")).body.meta.total).toBe(0);
     expect((await adminB.get(`/v1/rental-documents/${doc.id}/content`)).status).toBe(404);
-    expect((await agentA.get("/v1/rental-documents")).status).toBe(403);
+    const agentVault = await agentA.get("/v1/rental-documents");
+    expect(agentVault.status).toBe(200);
+    expect(agentVault.body.data).toEqual([]);
     expect((await adminA.get("/v1/rental-documents?page=0")).status).toBe(400);
   });
   it("amplía roles sin cambiar identidad ni perder contratos", async () => {

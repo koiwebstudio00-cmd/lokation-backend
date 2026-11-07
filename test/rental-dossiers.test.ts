@@ -44,7 +44,15 @@ describe.runIf(DB_AVAILABLE)("Legajos por contrato", () => {
     const download=await admin.get(`/v1/rental-documents/${documentId}/content`); expect(download.status).toBe(200); expect(Buffer.from(download.body)).toEqual(pdf);
     expect((await other.get(`/v1/rental-documents/${documentId}/content`)).status).toBe(404);
     expect((await other.delete(`/v1/rental-documents/${documentId}`).set("x-csrf-token",csrfB)).status).toBe(404);
-    expect((await agent.get(`/v1/rental-documents/${documentId}/content`)).status).toBe(403);
+    expect((await agent.get(`/v1/rental-documents/${documentId}/content`)).status).toBe(404);
+    const original=await adminDb().rentalDocument.findUniqueOrThrow({where:{id:documentId}});
+    const folder=await admin.post("/v1/vault-folders").set("x-csrf-token",csrf).send({name:"Legajos organizados"});
+    expect(folder.status).toBe(201);
+    await admin.patch(`/v1/rental-documents/${documentId}`).set("x-csrf-token",csrf).send({folderId:folder.body.folder.id,confirmAccessChange:true,title:"Garante organizado"}).expect(200);
+    const moved=await adminDb().rentalDocument.findUniqueOrThrow({where:{id:documentId}});
+    expect(moved.storageKey).toBe(original.storageKey);expect(moved.contractId).toBe(contractId);expect(moved.personId).toBe(guarantor);expect(moved.visibility).toBe("interna");
+    expect((await admin.get(`/v1/rental-contracts/${contractId}/documents`)).body.data.some((d:{id:string})=>d.id===documentId)).toBe(true);
+
     expect((await admin.delete(`/v1/rental-contracts/${contractId}/guarantors/${guarantor}`).set("x-csrf-token",csrf)).status).toBe(409);
   });
   it("transfiere más de 4,5 MB directamente con ticket de un solo uso",async()=>{
@@ -63,7 +71,7 @@ describe.runIf(DB_AVAILABLE)("Legajos por contrato", () => {
     const downloaded=await request(app).get(url.pathname+url.search); expect(downloaded.status).toBe(200); expect(Buffer.from(downloaded.body)).toEqual(bytes);
     expect(downloaded.headers["cache-control"]).toBe("no-store");
     expect((await other.get(`/v1/rental-documents/${id}/download-ticket`)).status).toBe(404);
-    expect((await agent.get(`/v1/rental-documents/${id}/download-ticket`)).status).toBe(403);
+    expect((await agent.get(`/v1/rental-documents/${id}/download-ticket`)).status).toBe(404);
     expect((await other.post("/v1/rental-documents/upload-ticket").set("x-csrf-token",csrfB).send(metadata)).status).toBe(404);
     await adminDb().user.update({where:{id:a.admin.id},data:{estado:"inactivo"}});
     try { expect((await request(app).get(url.pathname+url.search)).status).toBe(401); }
@@ -78,7 +86,10 @@ describe.runIf(DB_AVAILABLE)("Legajos por contrato", () => {
     await expect(adminDb().rentalDocument.update({where:{id:documentId},data:{visibility:"ambos"}})).rejects.toThrow();
     await expect(adminDb().rentalDocument.update({where:{id:documentId},data:{personId:foreign}})).rejects.toThrow();
     expect((await admin.delete(`/v1/rental-documents/${documentId}`).set("x-csrf-token",csrf)).status).toBe(200);
-    expect((await admin.delete(`/v1/rental-contracts/${contractId}/guarantors/${guarantor}`).set("x-csrf-token",csrf)).status).toBe(200);
-    expect((await admin.get(`/v1/rental-contracts/${contractId}/dossier`)).body.guarantors).toHaveLength(0);
+    expect((await admin.delete(`/v1/rental-contracts/${contractId}/guarantors/${guarantor}`).set("x-csrf-token",csrf)).status).toBe(409);
+    expect((await admin.get(`/v1/rental-contracts/${contractId}/dossier`)).body.guarantors).toHaveLength(1);
+    await admin.post('/v1/rental-documents/batch').set('x-csrf-token',csrf).send({action:'restore',ids:[documentId]}).expect(200);
+    const restored=await adminDb().rentalDocument.findUniqueOrThrow({where:{id:documentId}});
+    expect(restored.personId).toBe(guarantor);expect(restored.contractId).toBe(contractId);expect(restored.deletedAt).toBeNull();
   });
 });

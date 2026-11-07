@@ -4,11 +4,14 @@ import { startZernioEventsWorker } from "./modules/integrations/zernioWebhook.wo
 import { startWebhookWorker } from "./modules/webhooks/worker.js";
 import { startFollowupWorker } from "./modules/agent/followup.worker.js";
 
+import {startVaultTrashWorker} from "./modules/rentals/trash.worker.js";
+
 const app = buildApp();
 
 app.listen(config.PORT, () => {
   console.log(`API escuchando en http://localhost:${config.PORT} (${config.NODE_ENV})`);
   startWebhookWorker();
+  startVaultTrashWorker();
   startZernioEventsWorker();
   startFollowupWorker();
 });

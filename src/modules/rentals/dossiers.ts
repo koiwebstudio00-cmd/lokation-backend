@@ -39,7 +39,7 @@ rentalDossierRoutes.delete("/rental-contracts/:id/guarantors/:personId", async (
     const contract = await tx.rentalContract.findUnique({ where: { id } });
     if (!contract) throw new ApiError("NOT_FOUND", "El contrato no existe.");
     if (contract.status === "finalizado") throw new ApiError("CONFLICT", "El contrato está finalizado.");
-    if (await tx.rentalDocument.count({ where: { contractId: id, personId } })) throw new ApiError("CONFLICT", "El garante tiene documentación vinculada. Conservá el vínculo mientras exista su legajo.");
+    if (await tx.rentalDocument.count({ where: { contractId: id, personId } })) throw new ApiError("CONFLICT", "El garante tiene documentación vinculada, incluida la papelera. Conservá el vínculo para poder restaurar su legajo.");
     await tx.rentalGuarantor.deleteMany({ where: { contractId: id, personId } });
   });
   res.json({ ok: true });

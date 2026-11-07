@@ -151,6 +151,15 @@ describe.runIf(DB_AVAILABLE)("Portal de alquileres por inmobiliaria", () => {
     expect((await adminB.get(`/v1/rental-documents/${documentId}/content`)).status).toBe(404);
     expect((await adminA.delete(`/v1/rental-documents/${documentId}`).set("x-csrf-token", csrfA)).status).toBe(200);
     expect((await request(app).get(directUrl.pathname + directUrl.search)).status).toBe(404);
+    expect((await adminA.get(`/v1/rental-contracts/${contractA}/documents`)).body.data.some((d:{id:string})=>d.id===documentId)).toBe(false);
+    const trashed=await adminDb().rentalDocument.findUniqueOrThrow({where:{id:documentId}});
+    expect(trashed.contractId).toBe(contractA);expect(trashed.visibility).toBe("inquilino");expect(trashed.deletedAt).not.toBeNull();
+    const portalAfter=await request(app).get(`/v1/portal/portal-a/contracts/${contractA}`).set("Authorization",`Bearer ${renterTokenA}`);
+    expect(portalAfter.body.documents.some((d:{id:string})=>d.id===documentId)).toBe(false);
+    await adminA.post('/v1/rental-documents/batch').set('x-csrf-token',csrfA).send({action:'restore',ids:[documentId]}).expect(200);
+    expect((await request(app).get(`/v1/portal/portal-a/documents/${documentId}/content`).set('Authorization',`Bearer ${renterTokenA}`)).body).toEqual(pdf);
+    await request(app).get(`/v1/portal/portal-a/documents/${documentId}/content`).set('Authorization',`Bearer ${ownerTokenA}`).expect(404);
+
   });
 
   it("mantiene los legajos internos fuera de ambos portales", async () => {

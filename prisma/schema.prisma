@@ -872,8 +872,16 @@ model RentalInquiry {
 }
 
 model RentalDocument {
+  trashBatchId String? @map("trash_batch_id") @db.Uuid
+  purgeClaimedAt DateTime? @map("purge_claimed_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedById String? @map("deleted_by_id") @db.Uuid
   id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId String @map("tenant_id") @db.Uuid
+  folderId String? @map("folder_id") @db.Uuid
+  accessMode String @default("admin") @map("access_mode")
+  teamPermission String @default("read") @map("team_permission")
+  grants Json @default("[]")
   contractId String? @map("contract_id") @db.Uuid
   personId String? @map("person_id") @db.Uuid
   dossierKind String? @map("dossier_kind")
@@ -891,11 +899,14 @@ model RentalDocument {
   contract RentalContract? @relation(fields: [contractId, tenantId], references: [id, tenantId], onDelete: Restrict)
   uploadedBy User @relation(fields: [uploadedById], references: [id])
 
+  @@index([tenantId, folderId])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([contractId, personId])
   @@index([personId, tenantId])
   @@index([contractId, createdAt(sort: Desc)])
   @@map("rental_documents")
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
 }
 
 model Lead {
@@ -1489,4 +1500,38 @@ model FileUploadUse {
  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
  @@index([expiresAt])
  @@map("file_upload_uses")
+}
+
+model VaultFolder {
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  deletedById String? @map("deleted_by_id") @db.Uuid
+  trashBatchId String? @map("trash_batch_id") @db.Uuid
+  purgeStartedAt DateTime? @map("purge_started_at") @db.Timestamptz
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ parentId String? @map("parent_id") @db.Uuid
+ name String
+ accessMode String @default("admin") @map("access_mode")
+ teamPermission String @default("read") @map("team_permission")
+ grants Json @default("[]")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@unique([id,tenantId])
+ @@index([tenantId,parentId])
+ @@map("vault_folders")
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+}
+
+model VaultActivity {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ actorId String? @map("actor_id") @db.Uuid
+ actorName String @map("actor_name")
+ entityId String @map("entity_id") @db.Uuid
+ entityType String @map("entity_type")
+ entityName String @map("entity_name")
+ action String
+ details Json @default("{}")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+ @@map("vault_activity")
 }
