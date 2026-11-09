@@ -4,6 +4,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { seedCaptations } from "./seed-captations.js";
 import { seedCommunity } from "./seed-community.js";
 import { seedClients } from "./seed-clients.js";
 import { newDocumentKey, saveRentalPdf } from "../src/lib/rental-documents-storage.js";
@@ -391,6 +392,7 @@ async function main() {
   }
 
   await seedCommunity(prisma);
+  await seedCaptations(prisma);
   console.log("Seed local Lokation OK: dos inmobiliarias con personal, propietarios, inquilinos, portales, propiedades, contratos, PDF privado, consultas, mantenimiento, cobros, ajustes y liquidaciones.");
   console.log(`Contraseña local de demostración: ${DEV_PASSWORD}`);
 }

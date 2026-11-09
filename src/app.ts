@@ -1,3 +1,4 @@
+import { captationRoutes } from "./modules/captations/routes.js";
 import { fileTransferRoutes } from "./modules/rentals/file-transfers.js";
 import { rentalDossierRoutes } from "./modules/rentals/dossiers.js";
 import { rentalTermsRoutes } from "./modules/rentals/terms.js";
@@ -74,6 +75,7 @@ export function buildApp() {
   v1.use(healthRoutes);
   v1.use(fileTransferRoutes);
   v1.use(taskRoutes);
+  v1.use(captationRoutes);
   v1.use(managedPropertyRoutes);
   v1.use(rentalTermsRoutes);
   v1.use(notificationRoutes);

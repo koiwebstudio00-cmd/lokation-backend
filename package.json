@@ -25,6 +25,7 @@
     "migrate:supabase": "tsx scripts/migrate-supabase.ts",
     "admin": "tsx scripts/admin-cli.ts",
     "zernio-adopt": "node dist/ops/zernio-adopt.js",
+    "seed:captations": "tsx scripts/seed-captations.ts",
     "seed:community": "tsx scripts/seed-community.ts",
     "seed:clients": "tsx scripts/seed-clients.ts"
   },

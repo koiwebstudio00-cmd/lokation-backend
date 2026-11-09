@@ -67,11 +67,11 @@ describe.runIf(DB_AVAILABLE)('Community: permisos y aislamiento',()=>{
   await patch(`/v1/tasks/${task.id}`,{assignedToId:uid}).expect(400);await post('/v1/tasks',{title:'No crear',assignedToId:uid}).expect(403);
   await expect(runWithContext({rol:'community',tenantId:a.tenant.id,userId:uid},tx=>tx.teamTask.update({where:{id:task.id},data:{title:'No SQL'}}))).rejects.toThrow();
  });
- it('crea feedback propio y no ve el de otros usuarios',async()=>{
+ it('crea feedback y participa en publicaciones de otros usuarios',async()=>{
   const ownFeedback=(await post('/v1/feedback',{tipo:'sugerencia',titulo:'Idea community',descripcion:'Contenido de prueba'}).expect(201)).body.item.id;
   const foreign=(await admin.post('/v1/feedback').set('x-csrf-token',ca).send({tipo:'sugerencia',titulo:'Privada',descripcion:'Solo admin'}).expect(201)).body.item.id;
-  await community.get(`/v1/feedback/${ownFeedback}`).expect(200);await community.get(`/v1/feedback/${foreign}`).expect(404);
-  await post(`/v1/feedback/${ownFeedback}/comentarios`,{cuerpo:'Seguimiento'}).expect(201);
+  await community.get(`/v1/feedback/${ownFeedback}`).expect(200);await community.get(`/v1/feedback/${foreign}`).expect(200);
+  await post(`/v1/feedback/${foreign}/comentarios`,{cuerpo:'Seguimiento compartido'}).expect(201);
   await patch(`/v1/feedback/${ownFeedback}`,{estado:'resuelta'}).expect(403);
  });
  it('admin asigna el nuevo rol e invita; un cambio revoca la sesión con rol antiguo',async()=>{

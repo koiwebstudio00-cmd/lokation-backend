@@ -4,7 +4,7 @@ import { requireAuth, requireRole } from "../../middleware/auth.js";
 import * as feedback from "./service.js";
 
 // Sugerencias y reportes de error de los usuarios del panel. Todo bajo sesión;
-// RLS acota qué ve cada rol (ver migración 0014). `tipo` viaja como campo, no
+// RLS habilita lectura global y moderación exclusiva del superadmin. `tipo` viaja como campo, no
 // como ruta, para no duplicar handlers.
 export const feedbackRoutes = Router();
 
@@ -68,14 +68,14 @@ feedbackRoutes.get("/feedback/:id", async (req, res) => {
 });
 
 // Cambiar estado / borrar: triaje. RLS ya lo exige; requireRole es fail-fast.
-feedbackRoutes.patch("/feedback/:id", requireRole("admin", "super_admin"), async (req, res) => {
+feedbackRoutes.patch("/feedback/:id", requireRole("super_admin"), async (req, res) => {
   const body = z.object({ estado }).parse(req.body);
   res.json({
     item: await feedback.updateFeedbackEstado(req.auth!, idParam().parse(req.params.id), body.estado)
   });
 });
 
-feedbackRoutes.delete("/feedback/:id", requireRole("admin", "super_admin"), async (req, res) => {
+feedbackRoutes.delete("/feedback/:id", requireRole("super_admin"), async (req, res) => {
   await feedback.deleteFeedback(req.auth!, idParam().parse(req.params.id));
   res.status(204).end();
 });

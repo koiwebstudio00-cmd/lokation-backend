@@ -316,6 +316,8 @@ enum FeedbackEstado {
 }
 
 model Tenant {
+  captations Captation[]
+
   id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   nombre                String
   slug                  String       @unique
@@ -376,6 +378,9 @@ model Tenant {
 }
 
 model User {
+  assignedCaptations Captation[] @relation("captationAssignee")
+  createdCaptations Captation[] @relation("captationCreator")
+
   id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId     String?    @map("tenant_id") @db.Uuid // null solo para super_admin
   nombre       String
@@ -434,6 +439,8 @@ model User {
 }
 
 model Property {
+  captations Captation[]
+
   managed Boolean @default(false)
   administrationOnly Boolean @default(false) @map("administration_only")
   id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -501,6 +508,8 @@ model Property {
 /// Contacto comercial interno. Los roles son una clasificación preliminar;
 /// los permisos de portales se derivarán del contrato y sus vínculos vigentes.
 model RentalPerson {
+  captations Captation[]
+
   id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId    String             @map("tenant_id") @db.Uuid
   createdById String             @map("created_by_id") @db.Uuid
@@ -1293,10 +1302,12 @@ model ChannelWebhookEvent {
 }
 
 // ── Feedback (sugerencias y reportes de error del panel) ─────────────────────
-// Ver migración 0014. RLS: super_admin ve todo, admin su tenant, el autor lo
+// Ver migración global_feedback. Lectura global del panel; solo superadmin modera.
+// El autor conserva lo
 // propio. Solo los reportes ('error') tienen adjuntos.
 
 model FeedbackItem {
+  autorNombre String @default("") @map("autor_nombre")
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId    String         @map("tenant_id") @db.Uuid
   autorId     String         @map("autor_id") @db.Uuid
@@ -1337,6 +1348,7 @@ model FeedbackAdjunto {
 }
 
 model FeedbackComentario {
+  autorNombre String @default("") @map("autor_nombre")
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
   feedbackId String   @map("feedback_id") @db.Uuid
@@ -1535,4 +1547,30 @@ model VaultActivity {
  details Json @default("{}")
  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
  @@map("vault_activity")
+}
+
+model Captation {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  createdById String @map("created_by_id") @db.Uuid
+  assignedToId String @map("assigned_to_id") @db.Uuid
+  title String
+  address String
+  city String
+  zone String @default("")
+  type String
+  operation String
+  status String @default("nueva")
+  details Json @default("{}")
+  ownerPersonId String? @map("owner_person_id") @db.Uuid
+  propertyId String? @map("property_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@index([tenantId, assignedToId, createdAt])
+  tenant Tenant @relation(fields:[tenantId],references:[id],onDelete:Cascade)
+  assignedTo User @relation("captationAssignee",fields:[assignedToId,tenantId],references:[id,tenantId],onDelete:NoAction,onUpdate:NoAction)
+  createdBy User @relation("captationCreator",fields:[createdById,tenantId],references:[id,tenantId],onDelete:NoAction,onUpdate:NoAction)
+  ownerPerson RentalPerson? @relation(fields:[ownerPersonId,tenantId],references:[id,tenantId],onDelete:NoAction,onUpdate:NoAction)
+  property Property? @relation(fields:[propertyId,tenantId],references:[id,tenantId],onDelete:NoAction,onUpdate:NoAction)
+  @@map("captations")
 }

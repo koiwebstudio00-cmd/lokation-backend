@@ -1,7 +1,7 @@
 // Feedback — sugerencias y reportes de error de los usuarios del panel.
 // Un solo módulo con discriminador `tipo`. Solo los reportes ('error') aceptan
 // adjuntos (imágenes en R2). RLS es la autorización real (ver migración 0014):
-// super_admin ve todo, admin su tenant, el agente solo lo propio.
+// Lectura global del panel; moderación exclusiva del superadmin.
 import { ApiError } from "../../lib/errors.js";
 import { sendMail } from "../../lib/mailer.js";
 import { runWithContext, type Tx } from "../../lib/prisma.js";
@@ -27,9 +27,17 @@ export type FeedbackEstado =
 
 // Autor + contadores: es lo que muestra el listado de un vistazo.
 const ITEM_INCLUDE = {
-  autor: { select: { id: true, nombre: true } },
   _count: { select: { adjuntos: true, comentarios: true } }
 } as const;
+
+function visibleItem<T extends { autorId: string; autorNombre: string; urlContexto: string | null; userAgent: string | null }>(item: T, auth: AccessClaims) {
+  const technical = item.autorId === auth.userId || auth.rol === "super_admin";
+  return { ...item, autor: { id: item.autorId, nombre: item.autorNombre || "Usuario" },
+    urlContexto: technical ? item.urlContexto : null, userAgent: technical ? item.userAgent : null };
+}
+async function authorName(tx: Tx, auth: AccessClaims) {
+  return (await tx.user.findUnique({ where: { id: auth.userId }, select: { nombre: true } }))?.nombre ?? "Usuario";
+}
 
 export interface FeedbackFilters {
   tipo?: FeedbackTipo;
@@ -63,7 +71,7 @@ export async function listFeedback(auth: AccessClaims, f: FeedbackFilters) {
       }),
       tx.feedbackItem.count({ where })
     ]);
-    return { data, meta: { page: f.page, limit: f.limit, total } };
+    return { data: data.map(item => visibleItem(item, auth)), meta: { page: f.page, limit: f.limit, total } };
   });
 }
 
@@ -86,6 +94,7 @@ export async function createFeedback(
       data: {
         tenantId: auth.tenantId!,
         autorId: auth.userId,
+        autorNombre: await authorName(tx, auth),
         tipo: data.tipo,
         titulo: data.titulo,
         descripcion: data.descripcion,
@@ -96,7 +105,7 @@ export async function createFeedback(
     });
     // Los reportes de error suelen ser urgentes: se avisa a los admins del tenant.
     if (data.tipo === "error") await notifyAdmins(tx, auth.tenantId!, item);
-    return item;
+    return visibleItem(item, auth);
   });
 }
 
@@ -126,35 +135,24 @@ export async function getFeedback(auth: AccessClaims, id: string) {
     const item = await tx.feedbackItem.findUnique({
       where: { id },
       include: {
-        autor: { select: { id: true, nombre: true } },
         adjuntos: { orderBy: { orden: "asc" } },
-        // Sin include del autor del comentario: un comentario del super_admin
-        // (Koi) apunta a un usuario que el tenant NO puede ver por RLS, y Prisma
-        // rompe con "Field autor is required" al no poder resolver la relación
-        // obligatoria. Resolvemos los nombres aparte (los visibles) y caemos a
-        // "Soporte" para los que el que mira no puede ver.
+        // El nombre se conserva en el hilo sin abrir acceso a usuarios de otros tenants.
         comentarios: {
           orderBy: { createdAt: "asc" },
-          select: { id: true, autorId: true, cuerpo: true, createdAt: true }
+          select: { id: true, autorId: true, autorNombre: true, cuerpo: true, createdAt: true }
         }
       }
     });
     // RLS filtra: si no es visible, findUnique devuelve null → 404.
     if (!item) throw new ApiError("NOT_FOUND", "El recurso no existe.");
 
-    const autorIds = [...new Set(item.comentarios.map((c) => c.autorId))];
-    const autores = autorIds.length
-      ? await tx.user.findMany({ where: { id: { in: autorIds } }, select: { id: true, nombre: true } })
-      : [];
-    const nombrePorId = new Map(autores.map((u) => [u.id, u.nombre]));
-
     return {
-      ...item,
+      ...visibleItem(item, auth),
       comentarios: item.comentarios.map((c) => ({
         id: c.id,
         cuerpo: c.cuerpo,
         createdAt: c.createdAt,
-        autor: { id: c.autorId, nombre: nombrePorId.get(c.autorId) ?? "Soporte" }
+        autor: { id: c.autorId, nombre: c.autorNombre || "Usuario" }
       }))
     };
   });
@@ -169,7 +167,7 @@ export async function updateFeedbackEstado(
     // updateMany (no update) para que RLS devuelva 0 filas en vez de excepción.
     const { count } = await tx.feedbackItem.updateMany({ where: { id }, data: { estado } });
     if (count === 0) throw new ApiError("NOT_FOUND", "El recurso no existe.");
-    return (await tx.feedbackItem.findUnique({ where: { id }, include: ITEM_INCLUDE }))!;
+    return visibleItem((await tx.feedbackItem.findUnique({ where: { id }, include: ITEM_INCLUDE }))!, auth);
   });
 }
 
@@ -196,10 +194,10 @@ export async function addComentario(auth: AccessClaims, feedbackId: string, cuer
     if (!item) throw new ApiError("NOT_FOUND", "El recurso no existe.");
     // El comentario lleva el tenant del ítem, no el del autor: así el super_admin
     // (sin tenant) también puede comentar. La policy lo valida.
-    return tx.feedbackComentario.create({
-      data: { tenantId: item.tenantId, feedbackId, autorId: auth.userId, cuerpo },
-      include: { autor: { select: { id: true, nombre: true } } }
+    const comment = await tx.feedbackComentario.create({
+      data: { tenantId: item.tenantId, feedbackId, autorId: auth.userId, autorNombre: await authorName(tx, auth), cuerpo },
     });
+    return { ...comment, autor: { id: comment.autorId, nombre: comment.autorNombre } };
   });
 }
 
@@ -213,7 +211,7 @@ async function itemParaAdjunto(tx: Tx, auth: AccessClaims, feedbackId: string) {
     throw new ApiError("VALIDATION_ERROR", "Solo los reportes de error aceptan imágenes.");
   }
   const esAutor = item.autorId === auth.userId;
-  const esAdmin = auth.rol === "admin" || auth.rol === "super_admin";
+  const esAdmin = auth.rol === "super_admin";
   if (!esAutor && !esAdmin) {
     throw new ApiError("FORBIDDEN", "No podés adjuntar imágenes a este reporte.");
   }

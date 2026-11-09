@@ -1,4 +1,5 @@
 import request from "supertest";
+import { runWithContext } from "../src/lib/prisma.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import {
@@ -27,6 +28,7 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
   let agenteA: { agent: Agent; csrf: string };
   let otroAgenteA: { agent: Agent; csrf: string };
   let adminB: { agent: Agent; csrf: string };
+  let communityB: { agent: Agent; csrf: string };
   let superA: { agent: Agent; csrf: string };
 
   let sugerenciaId = "";
@@ -38,7 +40,7 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
     B = await seedTenantWithUsers("fdbk-b");
     await seedSuperAdmin();
 
-    // Un segundo agente en A, para probar que un agente no ve lo de su colega.
+    // Un segundo agente en A, para probar la lectura compartida entre colegas.
     await adminDb().user.create({
       data: {
         nombre: "Otro agente A",
@@ -49,6 +51,8 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
       }
     });
 
+    await adminDb().user.create({data:{nombre:"Community B",email:"community@fdbk-b.test",passwordHash:B.agente.passwordHash,rol:"community",tenantId:B.tenant.id}});
+    communityB = await login(app,"community@fdbk-b.test");
     adminA = await login(app, A.admin.email);
     agenteA = await login(app, A.agente.email);
     otroAgenteA = await login(app, "otro@fdbk-a.test");
@@ -82,18 +86,31 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
     expect(lista.body.meta.total).toBe(2);
   });
 
+  it("community participa entre inmobiliarias y RLS impide moderar incluso por SQL", async () => {
+    const list = await communityB.agent.get("/v1/feedback").expect(200);
+    expect(list.body.meta.total).toBe(2);
+    await communityB.agent.post(`/v1/feedback/${sugerenciaId}/comentarios`).set("x-csrf-token",communityB.csrf).send({cuerpo:"Idea compartida desde B"}).expect(201);
+    const detail = await agenteA.agent.get(`/v1/feedback/${sugerenciaId}`).expect(200);
+    expect(detail.body.item.comentarios[0].autor.nombre).toBe("Community B");
+    const ctx = {rol:"admin" as const,tenantId:A.tenant.id,userId:A.admin.id};
+    expect(await runWithContext(ctx,tx=>tx.feedbackItem.updateMany({where:{id:sugerenciaId},data:{estado:"resuelta"}}))).toEqual({count:0});
+    expect(await runWithContext(ctx,tx=>tx.feedbackItem.deleteMany({where:{id:sugerenciaId}}))).toEqual({count:0});
+    expect(await runWithContext(ctx,tx=>tx.user.findUnique({where:{id:B.admin.id}}))).toBeNull();
+  });
+
   it("filtra por tipo", async () => {
     const soloSug = await agenteA.agent.get("/v1/feedback?tipo=sugerencia");
     expect(soloSug.body.meta.total).toBe(1);
     expect(soloSug.body.data[0].id).toBe(sugerenciaId);
   });
 
-  it("un agente NO ve el feedback de otro agente del mismo tenant", async () => {
+  it("un agente ve el feedback de otro agente del mismo tenant", async () => {
     const lista = await otroAgenteA.agent.get("/v1/feedback");
-    expect(lista.body.meta.total).toBe(0);
+    expect(lista.body.meta.total).toBe(2);
 
     const detalle = await otroAgenteA.agent.get(`/v1/feedback/${reporteId}`);
-    expect(detalle.status).toBe(404);
+    expect(detalle.status).toBe(200);
+    expect(detalle.body.item.autor.nombre).toBe(A.agente.nombre);
   });
 
   it("el admin del tenant ve todo el feedback de su inmobiliaria", async () => {
@@ -101,12 +118,13 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
     expect(lista.body.meta.total).toBe(2);
   });
 
-  it("el admin de otro tenant no lo ve (aislamiento)", async () => {
+  it("el admin de otro tenant puede leer", async () => {
     const lista = await adminB.agent.get("/v1/feedback");
-    expect(lista.body.meta.total).toBe(0);
+    expect(lista.body.meta.total).toBe(2);
 
     const detalle = await adminB.agent.get(`/v1/feedback/${reporteId}`);
-    expect(detalle.status).toBe(404);
+    expect(detalle.status).toBe(200);
+    expect(detalle.body.item.autor.nombre).toBe(A.agente.nombre);
   });
 
   it("el super_admin ve el feedback de todos los tenants", async () => {
@@ -114,16 +132,17 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
     expect(lista.body.meta.total).toBe(2);
   });
 
-  it("el agente no puede cambiar el estado; el admin sí", async () => {
+  it("solo el superadmin puede cambiar el estado", async () => {
     const prohibido = await agenteA.agent
       .patch(`/v1/feedback/${sugerenciaId}`)
       .set("x-csrf-token", agenteA.csrf)
       .send({ estado: "en_revision" });
     expect(prohibido.status).toBe(403);
 
-    const ok = await adminA.agent
+    await adminA.agent.patch(`/v1/feedback/${sugerenciaId}`).set("x-csrf-token", adminA.csrf).send({estado:"resuelta"}).expect(403);
+    const ok = await superA.agent
       .patch(`/v1/feedback/${sugerenciaId}`)
-      .set("x-csrf-token", adminA.csrf)
+      .set("x-csrf-token", superA.csrf)
       .send({ estado: "planificada" });
     expect(ok.status).toBe(200);
     expect(ok.body.item.estado).toBe("planificada");
@@ -144,6 +163,10 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
 
     const detalle = await adminA.agent.get(`/v1/feedback/${reporteId}`);
     expect(detalle.body.item.comentarios).toHaveLength(2);
+    await adminB.agent.post(`/v1/feedback/${reporteId}/comentarios`).set("x-csrf-token",adminB.csrf).send({cuerpo:"También sucede en otra inmobiliaria"}).expect(201);
+    const shared = await agenteA.agent.get(`/v1/feedback/${reporteId}`);
+    expect(shared.body.item.comentarios.at(-1).autor.nombre).toBe(B.admin.nombre);
+    expect((await adminB.agent.get(`/v1/feedback/${reporteId}`)).body.item.urlContexto).toBeNull();
   });
 
   it("adjuntos: presign + confirm en un reporte; el prefijo se valida", async () => {
@@ -170,6 +193,16 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
     expect(mala.status).toBe(400);
   });
 
+  it("protege adjuntos ajenos y requiere sesión", async () => {
+    for (const user of [adminA, adminB, otroAgenteA]) {
+      await user.agent.post(`/v1/feedback/${reporteId}/adjuntos/presign`).set("x-csrf-token",user.csrf).send({count:1}).expect(403);
+    }
+    const item = (await adminB.agent.get(`/v1/feedback/${reporteId}`)).body.item;
+    expect(item.adjuntos).toHaveLength(2);
+    await adminB.agent.delete(`/v1/feedback/adjuntos/${item.adjuntos[0].id}`).set("x-csrf-token",adminB.csrf).expect(404);
+    await request(app).get("/v1/feedback").expect(401);
+  });
+
   it("las sugerencias no aceptan imágenes", async () => {
     const res = await agenteA.agent
       .post(`/v1/feedback/${sugerenciaId}/adjuntos/presign`)
@@ -178,10 +211,11 @@ describe.runIf(DB_AVAILABLE)("Feedback (sugerencias y reportes)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("el admin borra un reporte (cascade limpia adjuntos y comentarios)", async () => {
-    const del = await adminA.agent
+  it("el superadmin borra un reporte (cascade limpia adjuntos y comentarios)", async () => {
+    await adminA.agent.delete(`/v1/feedback/${reporteId}`).set("x-csrf-token",adminA.csrf).expect(403);
+    const del = await superA.agent
       .delete(`/v1/feedback/${reporteId}`)
-      .set("x-csrf-token", adminA.csrf);
+      .set("x-csrf-token", superA.csrf);
     expect(del.status).toBe(204);
 
     const adjuntos = await adminDb().feedbackAdjunto.count({ where: { feedbackId: reporteId } });
